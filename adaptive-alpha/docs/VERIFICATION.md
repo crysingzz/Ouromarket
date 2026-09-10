@@ -4,7 +4,9 @@
 
 Local Python verification: **287 tests passed; 100.00% statement coverage (3330/3330)**. Ruff lint/format, Pyrefly 1.2.0, mypy, strict OpenSpec (16 items) and dependency audit pass. New tests cover lifecycle permissions and atomic transitions, matched forward windows, automatic risk demotion, researcher-to-engineer contracts, inert artifact review, signed paper approvals and delivery interleavings. Real OpenAI, Ouroboros and Alpaca calls are not part of these controlled-transport tests.
 
-Docker and browser validation for v0.3 are recorded separately after their runs. The table below is the historical v0.2 acceptance record.
+GitHub CI passed for commit `57a4515f`: both quality and full laboratory workflows, including Docker integration and exact offline campaign reproduction. Local Docker API, evaluator and PostgreSQL are healthy; the research worker is running. The v0.3 browser smoke passed in system Chrome (`ALPHA_BROWSER_CHANNEL=chrome`), including lifecycle/artifact panels on desktop and mobile, evidence export, audit verification, and no JavaScript errors. Screenshots are retained locally under `.state/ui`. No external provider credentials were used.
+
+The remaining v0.2 acceptance record below is historical, including its statements about publication and remote CI.
 
 Verified locally on 2026-09-07 for Adaptive Alpha v0.2. The running Docker stack includes this implementation. Upstream Ouroboros code and unrelated containers were not changed.
 

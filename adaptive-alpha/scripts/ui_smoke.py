@@ -1,5 +1,6 @@
 """Optional browser verification: uv run --with playwright python scripts/ui_smoke.py."""
 
+import os
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -8,7 +9,7 @@ root = Path(__file__).resolve().parent.parent
 output = root / ".state" / "ui"
 output.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as playwright:
-    browser = playwright.chromium.launch()
+    browser = playwright.chromium.launch(channel=os.environ.get("ALPHA_BROWSER_CHANNEL"))
     page = browser.new_page(viewport={"width": 1440, "height": 1100}, device_scale_factor=1)
     failures = []
     page.on("pageerror", lambda error: failures.append(str(error)))
