@@ -41,20 +41,26 @@ def prepared(settings, **options):
     return store, pipeline, job, claimed
 
 
-def test_openai_campaign_default_adapters_and_three_generation_lineage(settings, monkeypatch):
+def test_spec_engineering_default_path_and_three_generation_lineage(settings, monkeypatch):
     settings.openai_api_key = SecretStr("test-key")
     ev = evidence()
     contexts = []
 
-    def generate(self, model, context, budget):
+    def implement(store, settings, model, context, dataset_id, allowance, timeout, checkpoint):
         contexts.append(context)
-        return candidate(ev.id).model_copy(
-            update={
-                "source": f"def signal(history):\n    return {0.05 + context['generation'] * 0.01}\n"
-            }
-        ), {"input_tokens": 10, "output_tokens": 20}
+        return (
+            candidate(ev.id).model_copy(
+                update={
+                    "source": f"def signal(history):\n    return {0.05 + context['generation'] * 0.01}\n"
+                }
+            ),
+            {"input_tokens": 10, "output_tokens": 20},
+            {"work_order_id": "bound-spec"},
+        )
 
-    monkeypatch.setattr(module.OpenAIProvider, "generate", generate)
+    monkeypatch.setattr(module, "implement_research", implement)
+    forbidden = Mock(side_effect=AssertionError("Combined generation must not run"))
+    monkeypatch.setattr(module.OpenAIProvider, "generate", forbidden)
     monkeypatch.setattr(module, "search_sources", lambda *_: ([ev], {"openalex": "available"}))
     original = httpx.Client
     monkeypatch.setattr(
@@ -73,7 +79,9 @@ def test_openai_campaign_default_adapters_and_three_generation_lineage(settings,
     with store.transaction() as conn:
         artifacts = store.related(conn, "candidate", "campaign_id", job["id"])
         assert len(artifacts) == 3 and artifacts[2]["parent_ids"]
+        assert all(a["generation_path"] == "research-spec-ouroboros-v1" for a in artifacts)
         assert store.verify_audit(conn)
+    forbidden.assert_not_called()
 
 
 def test_ouroboros_campaign_retains_external_accounting(settings, monkeypatch):
@@ -102,7 +110,7 @@ def test_ouroboros_campaign_retains_external_accounting(settings, monkeypatch):
     [
         ("no_evidence", "NO_RESEARCH_EVIDENCE"),
         ("deadline", "CAMPAIGN_DEADLINE"),
-        ("missing_provider", "PROVIDER_REQUIRED"),
+        ("missing_provider", "RETIRED_GENERATION_PATH"),
     ],
 )
 def test_campaign_early_failures_are_explicit(settings, monkeypatch, mode, reason):

@@ -32,11 +32,14 @@ class Campaigns:
     def create(
         self, request: CampaignRequest, actor: str, *, defer: bool = False
     ) -> dict[str, Any]:
-        payload = {
+        payload: dict[str, Any] = {
             "id": new_id(),
             **request.model_dump(mode="json"),
             "created_at": now(),
             "actor": actor,
+            "generation_path": "research-spec-ouroboros-v1",
+            "scope": "internal-paper",
+            "capital_eligible": False,
         }
         with self.store.transaction() as conn:
             self.store.get(conn, request.dataset_id, "dataset")
@@ -193,13 +196,15 @@ class Campaigns:
         parent_id: str | None = None
         seen_sources: set[str] = set()
         sources: dict[str, str] = {}
-        provider_instance = None
+        generation_path = (
+            "controlled-fixture" if generate is not None else "research-spec-ouroboros-v1"
+        )
         try:
             checkpoint()
-            if generate is None and campaign["engineer"] == "openai":
-                key = self.settings.openai_api_key
-                provider_instance = OpenAIProvider(key.get_secret_value() if key else "")
-                generate = provider_instance.generate
+            # Old immutable requests remain readable, but cannot select a retired
+            # execution path. The worker never silently upgrades their semantics.
+            if campaign.get("engineer") != "ouroboros":
+                raise ValueError("RETIRED_GENERATION_PATH")
             with self.store.transaction() as conn:
                 dataset_record = self.store.get(conn, campaign["dataset_id"], "dataset")
             dataset = DatasetImport.model_validate(dataset_record["data"])
@@ -259,6 +264,7 @@ class Campaigns:
                             "generation": generation,
                             "reserved_tokens": allowance,
                             "started_at": now(),
+                            "generation_path": generation_path,
                         },
                         active_attempt,
                     )
@@ -284,7 +290,7 @@ class Campaigns:
                         "public_metrics": champion["public"]["public_oos"],
                     }
                 engineering: dict[str, Any] = {}
-                if campaign["engineer"] == "ouroboros" and generate is None:
+                if generate is None:
                     candidate, usage, engineering = implement_research(
                         self.store,
                         self.settings,
@@ -296,10 +302,8 @@ class Campaigns:
                         checkpoint,
                     )
                 else:
-                    if generate is None:
-                        raise ValueError("PROVIDER_REQUIRED")
-                    if provider_instance:
-                        provider_instance.timeout = min(120, deadline - time.monotonic())
+                    # Trusted in-process fixtures only; this callable is never
+                    # accepted from an API request or used by the worker entrypoint.
                     candidate, usage = generate(campaign["model"], context, allowance)
                 checkpoint()
                 candidate_id = new_id()
@@ -318,6 +322,9 @@ class Campaigns:
                     "source_hash": digest(candidate.source),
                     "dataset_id": campaign["dataset_id"],
                     "usage": usage,
+                    "generation_path": generation_path,
+                    "scope": "internal-paper",
+                    "capital_eligible": False,
                     **engineering,
                     "provenance": provenance(),
                     "created_at": now(),

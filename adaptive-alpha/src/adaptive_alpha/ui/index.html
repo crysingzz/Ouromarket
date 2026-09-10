@@ -20,7 +20,7 @@
 <label>Каталоги публикаций<select id="campaign-sources"><option value="openalex">OpenAlex</option><option value="all">OpenAlex + arXiv + Semantic Scholar</option></select></label><label>Market snapshot<select id="campaign-dataset" required></select></label>
 <label>OpenAI model<input id="campaign-model" required maxlength="100" placeholder="Your configured model ID"></label>
 <label>Отдел лаборатории<select id="campaign-department"><option value="replication">Воспроизведение опубликованных стратегий</option><option value="novel">Новые исследовательские гипотезы</option></select></label>
-<label>Реализация стратегии<select id="campaign-engineer"><option value="ouroboros">Исследователь OpenAI → инженер Ouroboros</option><option value="openai">Прямая генерация OpenAI (лабораторный режим)</option></select></label>
+<label>Реализация стратегии<select id="campaign-engineer"><option value="ouroboros">Исследователь OpenAI → инженер Ouroboros</option></select></label>
 <p id="engineering-readiness" class="fine-print"></p>
 <div class="form-row"><label>Generations<input id="campaign-generations" type="number" min="1" max="10" value="2" required></label><label>Total token budget<input id="campaign-tokens" type="number" min="4000" max="100000" value="40000" required></label></div>
 <p class="fine-print">Searches publications, generates restricted Python and evaluates it independently. An API key must be configured on the worker. Provider calls consume your OpenAI API budget.</p>

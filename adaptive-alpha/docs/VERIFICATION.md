@@ -1,5 +1,7 @@
 # Verification record
 
+The fixed-spec generation increment passes **304 tests, 100.00% Python statement coverage (3386/3386)**, Ruff, Pyrefly, mypy and strict OpenSpec (18 items). New HTTP/worker tests verify the default Ouroboros route, rejection of retired or caller-forged modes, preserved immutable legacy requests, explicit fixture provenance and no combined-generator fallback. This increment removes the obsolete worker branch; coverage remains complete with fewer production statements.
+
 ## v0.3 — 2026-09-10
 
 Post-activation performance monitoring adds 11 test cases: **298 tests passed; 100.00% statement coverage (3392/3392)**. Ruff, Pyrefly, mypy and strict OpenSpec (17 items) pass. Controlled retained observations verify two disjoint loss windows, atomic demotion, immutable policy/evidence replay, daily sealing, retries, recovery, mixed-origin/gap rejection and risk precedence. This is empirical simulation monitoring, not a validated scientific alpha detector.

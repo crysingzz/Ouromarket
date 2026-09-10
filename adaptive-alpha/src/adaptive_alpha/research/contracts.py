@@ -14,7 +14,7 @@ class CampaignRequest(Contract):
     model: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9._:-]+$")
     generations: int = Field(default=2, ge=1, le=10)
     token_budget: int = Field(default=40_000, ge=4000, le=100_000)
-    engineer: Literal["openai", "ouroboros"] = "openai"
+    engineer: Literal["ouroboros"] = "ouroboros"
     department: Literal["replication", "novel"] = "replication"
     max_seconds: int = Field(default=600, ge=30, le=1800)
     workflow: Literal["static", "adaptive"] = "adaptive"
