@@ -34,6 +34,11 @@ def test_lifecycle_http_gate_atomic_shadow_and_manual_demotion(client):
     seed_candidate(store)
     assert client.get("/api/lifecycle").json()["unregistered"][0]["candidate_id"] == "forward"
     assert client.post("/api/lifecycle/forward/register").json()["status"] == "RESEARCH"
+    assert (
+        client.get("/api/lifecycle/forward/performance").json()["monitor"]["status"]
+        == "NOT_ACTIVATED"
+    )
+    assert client.get("/api/lifecycle/missing/performance").status_code == 404
     assert move(client, "forward", "ACTIVE_LIMITED").status_code == 409
     assert move(client, "forward", "LAB_VALIDATED").json()["status"] == "LAB_VALIDATED"
     assert move(client, "forward", "SHADOW").json()["status"] == "SHADOW"
@@ -63,6 +68,7 @@ def test_lifecycle_http_gate_atomic_shadow_and_manual_demotion(client):
         ("/strategy-comparisons", "POST"),
         ("/strategy-comparisons/x", "GET"),
         ("/lifecycle/x/monitor", "POST"),
+        ("/lifecycle/x/performance", "GET"),
         ("/rollback/SPY", "GET"),
         ("/engineering", "GET"),
         ("/engineering/artifacts/x", "GET"),

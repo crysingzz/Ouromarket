@@ -10,6 +10,7 @@ from adaptive_alpha.domain import Contract
 from adaptive_alpha.research.engineering import EngineeringRegistry
 from adaptive_alpha.research.forward import ForwardPaper
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
+from adaptive_alpha.research.performance import PerformanceMonitor
 from adaptive_alpha.store import Store
 
 
@@ -94,6 +95,10 @@ def register_operations(app: FastAPI, store: Store, operator: Callable[..., str]
     @app.post("/api/lifecycle/{candidate_id}/monitor")
     def monitor(candidate_id: str, actor: Annotated[str, Depends(operator)]) -> dict[str, Any]:
         return lifecycle.monitor(candidate_id, actor=actor)
+
+    @app.get("/api/lifecycle/{candidate_id}/performance", dependencies=[Depends(operator)])
+    def performance(candidate_id: str) -> dict[str, Any]:
+        return PerformanceMonitor(store).report(candidate_id)
 
     @app.get("/api/rollback/{symbol}", dependencies=[Depends(operator)])
     def rollback(symbol: str) -> dict[str, Any]:

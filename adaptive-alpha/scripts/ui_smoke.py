@@ -74,6 +74,14 @@ with sync_playwright() as playwright:
     expect(page.get_by_role("heading", name="Активные стратегии и претенденты")).to_be_visible()
     expect(page.get_by_role("heading", name="Артефакты Ouroboros")).to_be_visible()
     expect(page.locator("#lifecycle-strategies")).not_to_be_empty()
+    expect(page.get_by_role("heading", name="Контроль результатов после допуска")).to_be_visible()
+    if page.locator("[data-performance]").count():
+        page.locator("[data-performance]").first.click()
+        expect(page.locator("#detail-title")).to_have_text("Контроль результатов")
+        expect(page.locator("#detail-content")).to_contain_text("Только внутренняя симуляция")
+        expect(page.locator("#download-evidence")).to_be_hidden()
+        page.locator("#close-detail").click()
+        expect(page.locator("#download-evidence")).to_have_js_property("hidden", False)
     page.screenshot(
         path=str(output / "lifecycle-mobile.png"), full_page=True, animations="disabled"
     )
@@ -92,6 +100,6 @@ with sync_playwright() as playwright:
         raise RuntimeError(f"Browser errors: {failures}")
     browser.close()
 print(
-    "PASS: login, research, evidence, halt/resume, audit, autonomous panels, masked provider setup, dataset creation, desktop/mobile; no JavaScript errors."
+    "PASS: login, research, evidence, halt/resume, audit, autonomous and lifecycle panels, performance report, masked provider setup, dataset creation, desktop/mobile; no JavaScript errors."
 )
 print(f"Screenshots: {output}")

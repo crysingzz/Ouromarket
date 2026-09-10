@@ -16,6 +16,7 @@ from sqlalchemy.engine import Connection
 
 from adaptive_alpha.domain import digest, new_id, now
 from adaptive_alpha.research.datasets import timestamp
+from adaptive_alpha.research.performance import PerformanceMonitor
 from adaptive_alpha.store import Store
 
 TRANSITIONS = {
@@ -270,6 +271,8 @@ class StrategyLifecycle:
                 forward.update(status="HALTED", halt_reason=reason)
                 self.store.set_state(conn, "forward:" + candidate_id, forward)
         self.store.append(conn, "lifecycle-transition", event, event["id"])
+        if target == "ACTIVE_LIMITED":
+            PerformanceMonitor(self.store).start(conn, event)
         self.store.set_state(conn, "lifecycle:" + candidate_id, state)
         self.store.audit(conn, "lifecycle.transitioned", actor, event)
         return state
@@ -368,6 +371,8 @@ class StrategyLifecycle:
             "capital_eligible": False,
         }
         self.store.append(conn, "lifecycle-observation", item, identity)
+        if state["status"] == "ACTIVE_LIMITED":
+            PerformanceMonitor(self.store).observe(conn, identity)
         return item
 
     def list_comparisons(self) -> builtins.list[dict[str, Any]]:
@@ -492,6 +497,13 @@ class StrategyLifecycle:
                 breach = "DRAWDOWN_LIMIT"
             elif 1 - nav / day_start > POLICY["max_daily_loss"]:
                 breach = "DAILY_LOSS_LIMIT"
+        performance = self.store.state(conn, "performance:" + candidate_id)
+        if (
+            not breach
+            and state["status"] == "ACTIVE_LIMITED"
+            and performance.get("status") == "HALT"
+        ):
+            breach = "SUSTAINED_NET_DEGRADATION"
         if breach:
             return self._change(
                 conn,
@@ -499,7 +511,11 @@ class StrategyLifecycle:
                 "DEMOTED",
                 actor,
                 breach,
-                {"policy_hash": digest(POLICY), "forward_state_hash": digest(forward)},
+                {
+                    "policy_hash": digest(POLICY),
+                    "forward_state_hash": digest(forward),
+                    "performance_report_id": performance.get("last_report_id"),
+                },
             )
         return state
 

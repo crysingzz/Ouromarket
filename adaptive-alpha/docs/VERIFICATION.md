@@ -2,6 +2,12 @@
 
 ## v0.3 — 2026-09-10
 
+Post-activation performance monitoring adds 11 test cases: **298 tests passed; 100.00% statement coverage (3392/3392)**. Ruff, Pyrefly, mypy and strict OpenSpec (17 items) pass. Controlled retained observations verify two disjoint loss windows, atomic demotion, immutable policy/evidence replay, daily sealing, retries, recovery, mixed-origin/gap rejection and risk precedence. This is empirical simulation monitoring, not a validated scientific alpha detector.
+
+The initial v0.3 foundation verification follows.
+
+The performance-monitoring Docker build and deployed API smoke also pass. Browser acceptance in system Chrome covers the new desktop/mobile panel and authenticated report dialog, including restoration of experiment export after closing the dialog. The first browser attempt exposed a timing-sensitive immediate assertion; it now waits for the dialog close event using Playwright's retried property assertion. The subsequent complete browser run passes without JavaScript errors.
+
 Local Python verification: **287 tests passed; 100.00% statement coverage (3330/3330)**. Ruff lint/format, Pyrefly 1.2.0, mypy, strict OpenSpec (16 items) and dependency audit pass. New tests cover lifecycle permissions and atomic transitions, matched forward windows, automatic risk demotion, researcher-to-engineer contracts, inert artifact review, signed paper approvals and delivery interleavings. Real OpenAI, Ouroboros and Alpaca calls are not part of these controlled-transport tests.
 
 GitHub CI passed for commit `57a4515f`: both quality and full laboratory workflows, including Docker integration and exact offline campaign reproduction. Local Docker API, evaluator and PostgreSQL are healthy; the research worker is running. The v0.3 browser smoke passed in system Chrome (`ALPHA_BROWSER_CHANNEL=chrome`), including lifecycle/artifact panels on desktop and mobile, evidence export, audit verification, and no JavaScript errors. Screenshots are retained locally under `.state/ui`. No external provider credentials were used.
