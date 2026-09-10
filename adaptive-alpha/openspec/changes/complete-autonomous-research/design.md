@@ -1,0 +1,4 @@
+## Design
+A database-backed campaign queue owns leases and trial accounting. A dedicated worker reads evidence through fixed-origin connectors, invokes OpenAI using strict structured output, and validates generated Python with an explicit AST grammar. A bounded interpreter, never eval/exec/import, computes one signal from the history available before each bar. The host calculates returns and statistics. Documents, model output and Ouroboros output are untrusted data. Generated source never receives service credentials or hidden data files.
+
+Unknown outcomes of paid requests are recorded and are not automatically retried. Expired active work is closed as interrupted before retry. Existing demo routes remain backward compatible. External integrations require local secrets and explicit configuration. A complete research implementation is distinct from demonstrated investment performance.

@@ -1,0 +1,127 @@
+import {operationsUI} from './operations.js';
+const $ = (id) => document.getElementById(id);
+let token = '', data = {}, busy = false, toastTimer, selectedExperiment;
+const money = (n) => new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:2}).format(n);
+const pct = (n) => `${(n * 100).toFixed(2)}%`;
+const short = (s) => s.slice(0,8);
+const stamp = (s) => new Date(s).toLocaleString('en-GB', {dateStyle:'short',timeStyle:'short'});
+const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const badge = (s) => `<span class="pill ${['PASS','COMPLETED','PAPER','VALIDATED','FILLED'].includes(s)?'teal':['FAIL','ERROR','REJECTED','HALT','CANCELLED'].includes(s)?'red':['RUNNING','CREATED','BUDGET_EXHAUSTED'].includes(s)?'amber':'neutral'}">${escape(s)}</span>`;
+const empty = (title, text) => `<div class="empty"><strong>${escape(title)}</strong>${escape(text)}</div>`;
+function toast(message, failed=false) { clearTimeout(toastTimer); $('toast').textContent=message; $('toast').classList.toggle('failed',failed); $('toast').hidden=false; toastTimer=setTimeout(()=>{$('toast').hidden=true;},7000); }
+async function api(path, options={}) {
+  const response = await fetch(`/api${path}`, {...options, headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,...options.headers}});
+  let result; try { result=await response.json(); } catch { throw new Error('Server returned an unreadable response'); }
+  if (!response.ok) {
+    if(response.status===401) { token=''; $('connection').textContent='Disconnected'; if(!$('login-dialog').open) $('login-dialog').showModal(); }
+    throw new Error(typeof result.detail==='string'?result.detail:`Request failed (${response.status})`);
+  }
+  return result;
+}
+const post = (path, value={}) => api(path,{method:'POST',body:JSON.stringify(value)});
+const table = (heads,rows) => `<table><thead><tr>${heads.map(h=>`<th>${escape(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+const titles={autonomous:['From literature to a tested program.','Search, generate, evaluate and retain every outcome.','Autonomous R&D'],overview:['Research, with evidence.','From a testable hypothesis to an independently evaluated strategy.','Overview'],research:['The research laboratory.','Budgeted objectives, reproducible runs and retained failures.','Research lab'],strategies:['Every strategy has a history.','Immutable specifications, semantic mutations and explicit admission.','Strategy registry'],portfolio:['Capital follows controls.','A local synthetic paper account with atomic pretrade risk checks.','Portfolio & execution'],risk:['Independent by design.','Deterministic limits and an operator-controlled emergency stop.','Risk controls'],audit:['Nothing disappears.','A hash-chained journal of research, risk decisions and execution.','Audit trail']};
+function page(name) { if(!titles[name]) name='overview'; document.querySelectorAll('.page').forEach(el=>el.hidden=el.id!==name); document.querySelectorAll('[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===name)); const [title,sub,label]=titles[name]; $('page-title').textContent=title; $('page-subtitle').textContent=sub; $('page-label').textContent=label; history.replaceState(null,'',`#${name}`); }
+function experimentTable(items) {
+  if(!items.length) return empty('Your first experiment starts here.','Create a research job to build a reproducible chain of evidence.');
+  return table(['Experiment / strategy','Generation','Public OOS','Hidden verdict','Result','Evidence'],items.map(e=>`<tr><td><div class="table-name">${escape(data.strategies.find(s=>s.id===e.strategy_id)?.name||short(e.strategy_id))}</div><small>${escape(short(e.id))} · ${stamp(e.started_at)}</small></td><td>G${e.generation}</td><td>${e.public?pct(e.public.public_oos.return):'—'}</td><td>${e.hidden?`${badge(e.hidden.verdict)} <small>score ${e.hidden.score.toFixed(2)}</small>`:'—'}</td><td>${badge(e.status)}</td><td><button class="text-button" data-evidence="${escape(e.id)}">Inspect ↗</button></td></tr>`));
+}
+function render() {
+ $('metric-jobs').textContent=data.dashboard.counts.job||0; $('metric-experiments').textContent=data.dashboard.counts.attempt||0; $('metric-passed').textContent=data.experiments.filter(e=>e.status==='PASS').length; $('metric-nav').textContent=money(data.portfolio.nav); $('metric-pnl').textContent=`${money(data.portfolio.pnl)} simulated P&L`;
+ $('control-state').textContent=data.risk.halted?'Execution halted':'Pretrade controls active'; $('control-detail').textContent=data.risk.halted?data.risk.reason:'Every paper order requires risk approval'; $('control-light').classList.toggle('halted',data.risk.halted); $('reconciliation').textContent=data.portfolio.reconciled?'Matched':'MISMATCH';
+ $('recent-experiments').innerHTML=experimentTable(data.experiments.slice(0,5)); $('experiments').innerHTML=experimentTable(data.experiments);
+ $('jobs').innerHTML=data.jobs.length?table(['Research objective','Status','Attempts','Compute','Action'],data.jobs.map(j=>`<tr><td><div class="table-name">${escape(j.objective)}</div><small>${escape(short(j.id))} · ${stamp(j.created_at)}</small></td><td>${badge(j.status)}</td><td>${j.experiments} / ${j.budget.max_experiments}</td><td>${j.compute_seconds_used.toFixed(2)}s / ${j.budget.compute_seconds}s</td><td>${j.status==='CREATED'?`<button class="text-button" data-run="${escape(j.id)}">Run →</button>`:j.status==='RUNNING'?`<button class="text-button" data-cancel="${escape(j.id)}">Cancel</button>`:'—'}</td></tr>`)):empty('No research jobs yet.','Define an objective and an experiment budget to begin.');
+ $('strategy-list').innerHTML=data.strategies.length?data.strategies.map(s=>`<article class="strategy-card">${badge(s.status)}<h3>${escape(s.name)}</h3><p>${escape(s.family)} · ${s.lookback} day lookback · ${pct(s.position_fraction)} sizing</p><p>${escape(s.mutation_metadata)}</p><p>Parents: ${s.parent_strategies.length?s.parent_strategies.map(short).join(', '):'Root strategy'}</p><p>Capital eligibility: disabled / synthetic</p>${s.status==='VALIDATED'?`<button class="secondary" data-paper="${escape(s.id)}">Admit to demo paper →</button>`:''}</article>`).join(''):empty('No strategies in the registry.','A research job creates versioned strategy artifacts.');
+ const p=data.portfolio; $('portfolio-summary').innerHTML=Object.entries({'Net asset value':money(p.nav),'Cash':money(p.cash),'Simulated P&L':money(p.pnl),'Gross exposure':p.gross_exposure===null?'Unavailable':pct(p.gross_exposure),'Snapshot time':stamp(p.quotes.timestamp),'Price source':p.quotes.source}).map(([k,v])=>`<div class="detail-row"><span>${escape(k)}</span><span>${escape(v)}</span></div>`).join('');
+ $('positions').innerHTML=Object.keys(p.positions).length?table(['Instrument','Quantity','Snapshot price'],Object.entries(p.positions).map(([s,q])=>`<tr><td>${escape(s)}</td><td>${q}</td><td>${money(p.quotes.prices[s])}</td></tr>`)):empty('The account holds cash.','Admit a passed strategy to demo paper to place a simulated order.');
+ $('order-strategy').innerHTML=data.strategies.filter(s=>s.status==='PAPER').map(s=>`<option value="${escape(s.id)}">${escape(s.name)}</option>`).join('')||'<option value="">No paper strategies admitted</option>';
+ $('orders').innerHTML=data.orders.length?table(['Intent','Instrument','Side / quantity','Risk decision','Status'],data.orders.map(o=>`<tr><td>${escape(short(o.id))}<small>${stamp(o.timestamp)}</small></td><td>${escape(o.intent.instrument)}</td><td>${o.intent.side} ${o.intent.quantity}</td><td>${badge(o.decision.status)}<small>${escape(o.decision.checks.filter(c=>c.status==='FAIL').map(c=>c.rule).join(', '))}</small></td><td>${badge(o.status)}</td></tr>`)):empty('No orders submitted.','All submissions are checked, recorded and deduplicated.');
+ $('risk-limits').innerHTML=Object.entries(data.limits).map(([k,v])=>`<div class="detail-row"><span>${escape(k.replaceAll('_',' '))}</span><span>${typeof v==='number' && v>0 && v<1?pct(v):escape(v)}</span></div>`).join('');
+ $('audit-status').textContent=data.audit.verified?'HASH CHAIN VERIFIED':'INTEGRITY FAILURE'; $('audit-events').innerHTML=data.audit.events.map(e=>`<div class="audit-event"><time>${stamp(e.timestamp)}</time><div>${escape(e.topic)}<p>${escape(e.hash)}</p></div><small>${escape(e.actor)} / #${e.seq}</small></div>`).join('');
+ renderAutonomous();
+ renderAgentOperations();
+ operations.render(data.lifecycle,data.engineering,data.readiness);
+ $('connection').textContent='Operator connected';
+}
+async function refresh() {
+ const paths={revisions:'/agents/revisions',benchmarks:'/agents/benchmarks',forward:'/forward',readiness:'/research/readiness',datasets:'/datasets',campaigns:'/campaigns',knowledge:'/knowledge',dashboard:'/dashboard',jobs:'/research/jobs',experiments:'/experiments',strategies:'/strategies',portfolio:'/portfolio',risk:'/risk/status',limits:'/risk/limits',orders:'/orders',audit:'/audit'};
+ Object.assign(paths,{lifecycle:'/lifecycle',engineering:'/engineering'});
+ const values=await Promise.all(Object.entries(paths).map(async([key,path])=>[key,await api(path)])); data=Object.fromEntries(values); render();
+}
+async function action(fn) { try { await fn(); } catch(error) { toast(error.message,true); } }
+async function runJob(id) { if(busy) return; busy=true; $('new-research').disabled=true; toast('Research is running. Each attempt is persisted before evaluation.'); try { const result=await post(`/research/jobs/${id}/run`); toast(`Research ${result.status.toLowerCase().replaceAll('_',' ')} · ${result.experiments} attempts`,['FAILED','BUDGET_EXHAUSTED'].includes(result.status)); } finally { busy=false; $('new-research').disabled=false; await refresh(); } }
+$('login-form').addEventListener('submit',async(event)=>{event.preventDefault(); token=$('token').value.trim(); $('login-error').textContent=''; try{await refresh(); $('token').value=''; $('login-dialog').close();}catch(error){$('login-error').textContent=error.message;token='';}});
+$('disconnect').onclick=()=>{token='';location.reload();};
+$('refresh').onclick=()=>action(refresh); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>page(b.dataset.page)); document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>page(b.dataset.go));
+$('new-research').onclick=()=>token?$('job-dialog').showModal():$('login-dialog').showModal(); $('close-job').onclick=()=>$('job-dialog').close(); $('close-detail').onclick=()=>$('detail-dialog').close();
+$('job-form').addEventListener('submit',(event)=>{event.preventDefault(); action(async()=>{const job=await post('/research/jobs',{objective:$('objective').value,universe:[$('job-universe').value],budget:{max_experiments:Number($('experiment-budget').value),compute_seconds:Number($('compute-budget').value),llm_tokens:0}}); $('job-dialog').close(); page('research'); await refresh(); await runJob(job.id);});});
+document.addEventListener('click',(event)=>{const button=event.target.closest('button');if(!button)return; action(async()=>{if(button.dataset.run)await runJob(button.dataset.run);if(button.dataset.cancel){await post(`/research/jobs/${button.dataset.cancel}/cancel`);await refresh();}if(button.dataset.paper){await post(`/strategies/${button.dataset.paper}/paper`);toast('Strategy admitted to synthetic demo paper.');await refresh();}if(button.dataset.evidence){const e=data.experiments.find(e=>e.id===button.dataset.evidence);selectedExperiment=e;$('detail-title').textContent=`Experiment ${short(e.id)}`;$('detail-content').replaceChildren();const pre=document.createElement('pre');pre.textContent=JSON.stringify(e,null,2);$('detail-content').append(pre);$('detail-dialog').showModal();}});});
+$('quote-refresh').onclick=()=>action(async()=>{await post('/market/demo-refresh');await refresh();toast('Fixed synthetic snapshot refreshed. No live market feed is connected.');});
+$('order-form').addEventListener('submit',(event)=>{event.preventDefault();action(async()=>{const result=await post('/orders',{order_intent_id:crypto.randomUUID(),strategy_id:$('order-strategy').value,instrument:$('order-symbol').value,side:$('order-side').value,quantity:Number($('order-quantity').value)});await refresh();toast(`Paper order ${result.status.toLowerCase()}: ${result.decision.status}`,result.status!=='FILLED');});});
+async function kill(halted,quick=false){await post(`/risk/${halted?'halt':'resume'}`,{reason:quick?'Operator activated emergency stop':$('kill-reason').value});await refresh();toast(halted?'Emergency stop active. New orders are blocked.':'Paper execution resumed. Risk checks remain mandatory.');}
+$('quick-halt').onclick=()=>action(()=>kill(true,true));$('halt').onclick=()=>action(()=>kill(true));$('resume').onclick=()=>action(()=>kill(false));
+const operations=operationsUI({$,escape,table,empty,stamp,post,api,action,refresh,toast});
+$('detail-dialog').addEventListener('close',()=>{$('download-evidence').hidden=false;});
+page(location.hash.slice(1));$('login-dialog').showModal();
+
+let selectedCampaignBundle=null;
+$('download-evidence').onclick=()=>{if(!selectedExperiment && selectedCampaignBundle){const url=URL.createObjectURL(new Blob([JSON.stringify(selectedCampaignBundle,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`campaign-${selectedCampaignBundle.campaign.id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;}if(!selectedExperiment)return;const strategy=data.strategies.find(s=>s.id===selectedExperiment.strategy_id);if(!strategy){toast('Strategy is outside the loaded registry window. Fetch it from the API.',true);return;}const blob=new Blob([JSON.stringify({experiment:selectedExperiment,strategy},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`experiment-${selectedExperiment.id}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+
+function renderAutonomous(){
+ const ready=data.readiness, worker=ready.worker||{};
+ const active=worker.heartbeat && Date.now()/1000-worker.heartbeat<1900;
+ $('research-readiness').innerHTML=Object.entries({'Worker':active?'Connected':'No recent heartbeat','OpenAI key':worker.openai_key_configured?'Configured on worker':'Missing — configure local secret','Literature':(ready.literature||[]).join(' · '),'Generated Python':'Bounded historical signal interpreter','Capital admission':'Research only'}).map(([k,v])=>`<div class="detail-row"><span>${escape(k)}</span><span>${escape(v)}</span></div>`).join('');
+ const selection=$('campaign-dataset').value;
+ $('campaign-dataset').innerHTML=data.datasets.map(d=>`<option value="${escape(d.id)}">${escape(d.name)} · ${escape(d.symbol)} · ${d.bars} bars</option>`).join('')||'<option value="">Import a market snapshot first</option>';
+ if(data.datasets.some(d=>d.id===selection))$('campaign-dataset').value=selection;
+ if(!$('campaign-model').value && ready.default_model)$('campaign-model').value=ready.default_model;
+ $('dataset-list').innerHTML=data.datasets.map(d=>`<div class="detail-row"><span>${escape(d.name)}<small>${escape(d.symbol)} · ${escape(d.adjustment)} · ${d.bars} bars</small></span><span>${d.point_in_time_verified?'Operator PIT assertion':'PIT unverified'}</span></div>`).join('')||empty('No imported snapshots.','Import data with explicit availability and provenance.');
+ $('campaign-list').innerHTML=data.campaigns.length?table(['Objective','Status','Attempts','Reserved tokens','Artifacts'],data.campaigns.map(c=>`<tr><td>${escape(c.objective)}<small>${escape(c.model)} · ${stamp(c.created_at)}</small></td><td>${badge(c.status)}<small>${escape(c.reason||'')}</small></td><td>${c.attempts}/${c.generations}</td><td>${c.tokens_charged}/${c.token_budget}</td><td><button class="text-button" data-campaign="${escape(c.id)}">Inspect ↗</button>${['QUEUED','RUNNING'].includes(c.status)?`<button class="text-button" data-campaign-cancel="${escape(c.id)}">Cancel</button>`:''}</td></tr>`)):empty('No autonomous campaigns.','Configure the provider and import a snapshot to begin.');
+ $('knowledge-list').innerHTML=data.knowledge.evidence.map(e=>`<div class="detail-row"><span>${escape(e.title)}<small>${escape(e.provider)} · ${escape(e.published)}</small></span><span>${escape(short(e.id))}</span></div>`).join('')||empty('No retrieved evidence.','Campaigns retain publication metadata and their cited relationships.');
+}
+$('dataset-file').onchange=()=>action(async()=>{const file=$('dataset-file').files[0];if(!file)return;if(file.size>2000000)throw new Error('Dataset file exceeds 2 MB');const snapshot=JSON.parse(await file.text());await post('/datasets',snapshot);await refresh();toast('Immutable market snapshot imported.');});
+$('campaign-form').onsubmit=event=>{event.preventDefault();action(async()=>{await post('/campaigns',{objective:$('campaign-objective').value,query:$('campaign-query').value,dataset_id:$('campaign-dataset').value,model:$('campaign-model').value,generations:Number($('campaign-generations').value),token_budget:Number($('campaign-tokens').value),engineer:$('campaign-engineer').value,department:$('campaign-department').value,max_seconds:600,sources:$('campaign-sources').value==='all'?['openalex','arxiv','semantic_scholar']:['openalex'],propose_agent_revision:$('campaign-reflect').checked});await refresh();toast('Campaign queued for the research worker.');});};
+document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;action(async()=>{if(button.dataset.campaign){const bundle=await api(`/campaigns/${button.dataset.campaign}/bundle`);selectedCampaignBundle=bundle;selectedExperiment=null;$('detail-title').textContent='Campaign artifacts';renderCampaignDetails(bundle);$('detail-dialog').showModal();}if(button.dataset.campaignCancel){await post(`/campaigns/${button.dataset.campaignCancel}/cancel`);await refresh();}});});
+setInterval(()=>{if(token && !document.hidden && location.hash==='#autonomous')action(refresh);},5000);
+
+$('open-provider-setup').onclick=()=>$('provider-dialog').showModal();
+$('close-provider').onclick=()=>{$('provider-key').value='';$('provider-dialog').close();};
+$('provider-form').onsubmit=event=>{event.preventDefault();action(async()=>{const key=$('provider-key').value.trim();const body={model:$('provider-model').value};if(key)body.api_key=key;$('provider-status').textContent='Проверяем подключение…';try{const result=await post('/provider/setup',body);$('provider-key').value='';$('provider-model').innerHTML='<option value="">Выберите модель</option>'+result.models.map(m=>`<option value="${escape(m)}">${escape(m)}</option>`).join('');$('provider-model').value=result.model;$('provider-status').textContent=result.model?'Подключено. Можно запускать исследование.':'Ключ сохранён. Выберите модель и нажмите сохранить ещё раз.';if(result.model)$('campaign-model').value=result.model;await refresh();}catch(error){$('provider-key').value='';$('provider-status').textContent=error.message;throw error;}});};
+
+$('demo-dataset').onclick=()=>action(async()=>{await post('/datasets/demo');await refresh();toast('Синтетический набор создан. Он подходит для проверки работы сервиса.');});
+
+function renderCampaignDetails(bundle){
+ const results=new Map(bundle['candidate-result'].filter(r=>r.id).map(r=>[r.id,r]));
+ const cards=bundle.candidate.map(c=>{const r=results.get(c.id)||{};const metrics=r.public?.metrics;return `<article class="strategy-card">${badge(r.status||'Pending')}<h3>${escape(c.name)}</h3><p>${escape(c.hypothesis)}</p><p>${escape(c.rationale)}</p>${metrics?`<div class="detail-row"><span>Доходность публичного OOS</span><strong>${pct(r.public.public_oos.return)}</strong></div><div class="detail-row"><span>Максимальная просадка</span><strong>${pct(metrics.max_drawdown)}</strong></div><div class="detail-row"><span>Скрытая проверка</span><strong>${escape(r.hidden?.verdict||'—')} · ${escape(r.hidden?.score??'—')}</strong></div>`:`<p>${escape(r.reason||'Результат ещё не получен')}</p>`}<p>Риски: ${escape(c.failure_modes.join('; '))}</p><p>Использование модели: ${escape(c.usage.input_tokens??'—')} входных / ${escape(c.usage.output_tokens??'—')} выходных токенов</p><details><summary>Код стратегии</summary><pre>${escape(c.source)}</pre></details>${r.status==='PASS'?`<button class="secondary" data-forward-admit="${escape(c.id)}">Допустить к отдельному paper-счёту</button>`:''}</article>`;}).join('');
+ $('detail-content').innerHTML=cards||empty('Кандидатов пока нет.','Попытки и ошибки сохранены в пакете воспроизведения.');
+}
+document.addEventListener('click',event=>{const button=event.target.closest('[data-forward-admit]');if(!button)return;action(async()=>{await post(`/candidates/${button.dataset.forwardAdmit}/paper`);toast('Кандидат допущен к отдельному внутреннему paper-счёту. Для наблюдения рынка нужен настроенный feed.');});});
+
+function renderAgentOperations(){
+ const active=data.benchmarks.active_revision?.revision_id;
+ $('active-agent-revision').textContent=active?'Активная версия: '+short(active):'Базовые инструкции';
+ $('agent-revisions').innerHTML=data.revisions.map(r=>`<article class="strategy-card"><h3>${escape(r.name)}</h3><p>${escape(r.research_instructions)}</p><details><summary>Обоснование изменения</summary><p>${escape(r.openspec_rationale)}</p></details><button class="secondary" data-benchmark-create="${escape(r.id)}">Сравнить: 2 × бюджет формы</button></article>`).join('')||empty('Предложений пока нет.','Включите предложение улучшения агента при запуске исследования.');
+ $('agent-benchmarks').innerHTML=data.benchmarks.benchmarks.length?table(['Сравнение','Дата','Отчёт'],data.benchmarks.benchmarks.map(b=>`<tr><td>${escape(short(b.id))}</td><td>${stamp(b.registered_at)}</td><td><button class="text-button" data-benchmark-report="${escape(b.id)}">Посмотреть сравнение</button></td></tr>`)):'';
+ const feed=data.forward.worker||{};
+ $('forward-feed-status').textContent=feed.heartbeat && Date.now()/1000-feed.heartbeat<180?'Источник данных работает':'Источник данных не запущен';
+ $('forward-accounts').innerHTML=data.forward.accounts.length?table(['Кандидат','Инструмент','Стоимость счёта','Деньги','Последнее обновление'],data.forward.accounts.map(a=>`<tr><td>${escape(short(a.candidate_id))}</td><td>${escape(a.symbol)}</td><td>${money(a.nav??a.cash)}</td><td>${money(a.cash)}</td><td>${a.updated_at?stamp(a.updated_at):'Ожидание котировки'}</td></tr>`)):empty('Нет допущенных кандидатов.','Допуск доступен в результатах кампании после PASS.');
+}
+document.addEventListener('click',event=>{
+ const button=event.target.closest('button');if(!button)return;
+ action(async()=>{
+  if(button.dataset.benchmarkCreate){
+   if(!$('campaign-form').reportValidity())return;
+   const generations=Number($('campaign-generations').value),tokens=Number($('campaign-tokens').value);
+   if(generations<3||generations>5||tokens<15000)throw new Error('Для сравнения задайте 3–5 поколений и от 15 000 токенов на каждую из двух кампаний.');
+   button.disabled=true;
+   try{await post('/agents/benchmarks',{objective:$('campaign-objective').value,query:$('campaign-query').value,dataset_id:$('campaign-dataset').value,model:$('campaign-model').value,challenger_revision_id:button.dataset.benchmarkCreate,generations,tokens_per_arm:tokens,seconds_per_arm:600});await refresh();toast('Две кампании сравнения зарегистрированы и поставлены в очередь.');}finally{button.disabled=false;}
+  }
+  if(button.dataset.benchmarkReport){
+   const b=await api(`/agents/benchmarks/${button.dataset.benchmarkReport}`);
+   selectedExperiment=null;selectedCampaignBundle=null;$('detail-title').textContent='Сравнение инструкций агента';
+   $('detail-content').innerHTML=table(['Показатель','Базовый агент','Предложенная версия'],[['Статус','status'],['Прошедшие кандидаты','validated_strategies'],['Зарезервированные токены','tokens_reserved'],['Токены на прошедшего кандидата','tokens_per_validated']].map(([label,key])=>`<tr><td>${escape(label)}</td><td>${escape(b.arms.static[key]??'—')}</td><td>${escape(b.arms.adaptive[key]??'—')}</td></tr>`))+`<p>Это предварительное сравнение. Оно не даёт допуска к реальному капиталу.</p>${b.promotion_evidence?`<button class="primary" data-agent-promote="${escape(b.id)}">Применить инструкции к будущим исследованиям</button>`:'<p>Условие применения новой версии пока не выполнено.</p>'}`;
+   $('detail-dialog').showModal();
+  }
+  if(button.dataset.agentPromote){await post(`/agents/benchmarks/${button.dataset.agentPromote}/promote`);$('detail-dialog').close();await refresh();toast('Новые инструкции применены к будущим исследованиям.');}
+ });
+});

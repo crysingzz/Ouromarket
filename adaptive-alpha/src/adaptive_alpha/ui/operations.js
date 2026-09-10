@@ -1,0 +1,33 @@
+const labels={RESEARCH:'Исследование',LAB_VALIDATED:'Лаборатория пройдена',SHADOW:'Наблюдение',PAPER:'Бумажная торговля',CHALLENGER:'Претендент',ACTIVE_LIMITED:'Активная paper-стратегия',DEMOTED:'Приостановлена',RETIRED:'Архив'};
+const next={RESEARCH:'LAB_VALIDATED',LAB_VALIDATED:'SHADOW',SHADOW:'PAPER',PAPER:'CHALLENGER'};
+export function operationsUI({$,escape,table,empty,stamp,post,api,action,refresh,toast}){
+ let state,selected;
+ function render(lifecycle,engineering,readiness){
+  state=lifecycle;
+  const cards=lifecycle.strategies.map(s=>{
+   const comparison=lifecycle.comparisons.find(c=>c.challenger_id===s.candidate_id&&c.verdict==='PASS');
+   const target=next[s.status]||(s.status==='CHALLENGER'&&comparison?'ACTIVE_LIMITED':null);
+   return `<article class="strategy-card"><span class="pill ${s.status==='ACTIVE_LIMITED'?'teal':'neutral'}">${escape(labels[s.status])}</span><h3>${escape(s.name)}</h3><p>${escape(s.symbol)} · версия ${s.version} · внутренняя симуляция</p>${target?`<button class="secondary" data-stage="${target}" data-candidate="${escape(s.candidate_id)}">${escape(labels[target])} →</button>`:''}${s.forward_eligible?`<button class="danger" data-stage="DEMOTED" data-candidate="${escape(s.candidate_id)}">Приостановить</button>`:''}${s.status==='DEMOTED'?`<button class="secondary" data-stage="RETIRED" data-candidate="${escape(s.candidate_id)}">В архив</button>`:''}</article>`;
+  });
+  cards.push(...lifecycle.unregistered.map(s=>`<article class="strategy-card"><h3>${escape(s.name)}</h3><p>Кандидат предыдущей версии лаборатории.</p><button class="secondary" data-register="${escape(s.candidate_id)}">Добавить в реестр</button></article>`));
+  $('lifecycle-strategies').innerHTML=cards.join('')||empty('Стратегий пока нет.','Результаты исследования появятся здесь.');
+  for(const [id,entries,label] of [['comparison-challenger',lifecycle.strategies.filter(s=>['SHADOW','PAPER','CHALLENGER'].includes(s.status)),'Выберите претендента'],['comparison-active',lifecycle.strategies.filter(s=>s.status==='ACTIVE_LIMITED'),'Деньги без позиции — первый запуск']]){
+   const old=$(id).value;$(id).innerHTML=`<option value="">${label}</option>`+entries.map(s=>`<option value="${escape(s.candidate_id)}">${escape(s.name)} · ${escape(s.symbol)}</option>`).join('');if(entries.some(s=>s.candidate_id===old))$(id).value=old;
+  }
+  $('strategy-comparisons').innerHTML=lifecycle.comparisons.length?table(['Претендент','Наблюдения','Результат','Данные'],lifecycle.comparisons.map(c=>`<tr><td>${escape(lifecycle.strategies.find(s=>s.candidate_id===c.challenger_id)?.name||c.challenger_id)}</td><td>${c.matched_days} / ${c.policy.minimum_days} дней</td><td><button class="text-button" data-comparison="${escape(c.id)}">${escape(c.verdict)}</button></td><td>${escape(c.origin||'Ожидаются')}</td></tr>`)):empty('Сравнений пока нет.','Зарегистрируйте пару до начала наблюдения.');
+  $('lifecycle-events').innerHTML=lifecycle.transitions.map(e=>`<div class="audit-event"><time>${stamp(e.at)}</time><div>${escape(labels[e.from])} → ${escape(labels[e.to])}<p>${escape(e.reason)}</p></div><small>${escape(e.actor)}</small></div>`).join('')||empty('Переходов пока нет.','Каждое решение сохраняется с причиной.');
+  $('engineering-orders').innerHTML=engineering.work_orders.map(w=>`<details><summary>${escape(w.spec.name)} · инженерное задание</summary><p>${escape(w.spec.hypothesis)}</p><p>${escape(w.spec.decision_rules.join('; '))}</p></details>`).join('')||empty('Заданий пока нет.','Выберите инженера Ouroboros при запуске кампании.');
+  $('engineering-artifacts').innerHTML=engineering.artifacts.map(a=>{const b=engineering.benchmarks.find(b=>b.artifact_ids.includes(a.id)&&b.passed);return `<article class="strategy-card"><span class="pill neutral">${escape(a.kind)}</span><h3>${escape(a.name)}</h3><p>${a.kind==='strategy'?'Ограниченная программа сигнала':'Предложение для рецензирования'}</p><details><summary>Исходный текст</summary><pre>${escape(a.source)}</pre></details>${b?`<button class="secondary" data-artifact="${escape(a.id)}" data-benchmark="${escape(b.id)}">Зафиксировать рецензию</button>`:'<p>Контракт ещё не подтверждён.</p>'}</article>`;}).join('');
+  $('engineering-readiness').textContent=readiness.worker?.ouroboros_configured?'Адрес Ouroboros настроен. Бюджет инженера контролируется его окружением отдельно.':'Ouroboros пока не подключён. Для этого режима нужны изолированное окружение инженера и ключ модели исследователя.';
+ }
+ document.addEventListener('click',event=>{const b=event.target.closest('button');if(!b)return;action(async()=>{
+  if(b.dataset.register){await post(`/lifecycle/${encodeURIComponent(b.dataset.register)}/register`);await refresh();}
+  if(b.dataset.stage){const s=state.strategies.find(s=>s.candidate_id===b.dataset.candidate);if(!s)return;selected={candidate_id:s.candidate_id,target:b.dataset.stage,expected_version:s.version,request_id:crypto.randomUUID(),comparison_id:state.comparisons.find(c=>c.challenger_id===s.candidate_id&&c.verdict==='PASS')?.id||null};$('lifecycle-title').textContent=labels[selected.target];$('lifecycle-description').textContent=`${s.name}. Сервер проверит доказательства и актуальную версию. Реальный капитал недоступен.`;$('lifecycle-reason').value='';$('lifecycle-dialog').showModal();}
+  if(b.dataset.comparison){const r=await api(`/strategy-comparisons/${encodeURIComponent(b.dataset.comparison)}`);$('detail-title').textContent='Доказательства сравнения';$('detail-content').innerHTML=`<pre>${escape(JSON.stringify(r,null,2))}</pre>`;$('download-evidence').hidden=true;$('detail-dialog').showModal();}
+  if(b.dataset.artifact){await post(`/engineering/artifacts/${encodeURIComponent(b.dataset.artifact)}/promote`,{benchmark_id:b.dataset.benchmark});toast('Рецензия сохранена. Она не даёт торгового допуска или права запускать произвольный код.');await refresh();}
+ });});
+ $('lifecycle-close').onclick=()=>$('lifecycle-dialog').close();
+ $('lifecycle-form').onsubmit=event=>{event.preventDefault();action(async()=>{if(!selected)return;const {candidate_id,...body}=selected;await post(`/lifecycle/${encodeURIComponent(candidate_id)}/transitions`,{...body,reason:$('lifecycle-reason').value});$('lifecycle-dialog').close();await refresh();toast('Решение и доказательства сохранены.');});};
+ $('comparison-form').onsubmit=event=>{event.preventDefault();action(async()=>{await post('/strategy-comparisons',{active_id:$('comparison-active').value||null,challenger_id:$('comparison-challenger').value});await refresh();toast('Условия сравнения зафиксированы. Собираются новые наблюдения.');});};
+ return {render};
+}
