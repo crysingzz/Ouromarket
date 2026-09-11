@@ -4,4 +4,13 @@ Adaptive Alpha — лаборатория количественных иссл�
 
 Приложение, запуск через Docker, uv-окружение, UI, OpenSpec и тесты находятся в [adaptive-alpha](adaptive-alpha/README.md). Проверки: Ruff, Pyrefly, mypy и pytest с обязательным 100% покрытием исполняемых Python-строк.
 
-Ouroboros подключается как отдельное изолированное окружение через API. Исходный проект: [razzant/ouroboros](https://github.com/razzant/ouroboros). Реальная торговля в этой версии отключена.
+Настоящий [Ouroboros](https://github.com/razzant/ouroboros) подключён Git submodule в `ouroboros-runtime/`: версия 6.114.0, upstream-коммит `b9bcc2da71e0bd51b6f5f906890b3b80265defed`. Его исходники и uv lock отделены от Adaptive Alpha. Доставка исходников не включает локальные изменения старого checkout.
+
+```text
+ouromarket/
+├── adaptive-alpha/       # лаборатория, оценка, риск, UI
+├── ouroboros-runtime/    # закреплённые исходники upstream
+└── integration/          # Docker, авторизация и отдельные Git-workspace
+```
+
+После клонирования: `git submodule update --init ouroboros-runtime`. [Инструкция интеграции](integration/README.md) запускает настоящий сервер в режиме проверки протокола. Healthcheck и workspace работают; без модели upstream отклоняет задания с `worker_pool_unavailable`. Полный инженерный цикл и реальная торговля ещё не включены.

@@ -1,0 +1,33 @@
+## ADDED Requirements
+
+### Requirement: Pinned upstream source deployment
+
+The platform SHALL retain the original Ouroboros source as a separate Git submodule pinned to a full upstream commit. Its Docker image SHALL use the upstream lock and SHALL NOT include Adaptive Alpha source, credentials, hidden datasets or a host Docker socket. Bootstrap protocol acceptance SHALL run the actual upstream task handlers and SHALL be labelled separately from model execution.
+
+#### Scenario: Reproducible checkout
+
+- **WHEN** a fresh checkout initializes submodules
+- **THEN** it obtains the recorded upstream commit and bootstrap rejects modified or mismatched source
+
+### Requirement: Authenticated frozen workspaces
+
+Task transport SHALL carry a dedicated service credential. The runtime SHALL allocate a separate Git workspace per WorkOrder, validate the frozen spec hash and reject paths outside its workspace root. The alpha adapter SHALL verify the returned work identity, spec hash and workspace before task submission. The public integration surface SHALL NOT expose owner settings or provider changes.
+
+#### Scenario: Wrong workspace returned
+
+- **WHEN** provisioning returns a different path or identity
+- **THEN** the adapter refuses to create the engineering task
+
+#### Scenario: Unauthorized request
+
+- **WHEN** a caller omits the service credential
+- **THEN** all operations except health are denied, including loopback callers
+
+### Requirement: Readiness before research spend
+
+An ordinary campaign configured for the integrated runtime SHALL check execution readiness before invoking its researcher model. A healthy bootstrap server SHALL report execution unready and SHALL NOT be accepted as an available engineer.
+
+#### Scenario: Protocol-only service
+
+- **WHEN** the runtime has no admitted execution profile
+- **THEN** the campaign fails before spending researcher tokens, while explicit protocol acceptance can exercise task admission and cancellation

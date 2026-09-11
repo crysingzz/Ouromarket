@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     provider_vault_dir: Path = Path(".state/provider-vault")
     ouroboros_url: str = ""
     ouroboros_workspace: str = ""
+    ouroboros_token: SecretStr | None = None
+    ouroboros_provision_workspaces: bool = False
     hidden_dataset_path: Path | None = None
     alpaca_data_key: SecretStr | None = None
     alpaca_data_secret: SecretStr | None = None
@@ -41,6 +43,7 @@ class Settings(BaseSettings):
             "openai_api_key",
             "alpaca_data_key",
             "alpaca_data_secret",
+            "ouroboros_token",
         ):
             path = self.secrets_dir / field
             if getattr(self, field) is None and path.is_file():

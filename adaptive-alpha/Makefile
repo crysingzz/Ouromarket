@@ -3,11 +3,12 @@ setup:
 	uv sync --locked
 	uv run python scripts/bootstrap.py
 lint:
-	uv run ruff check src tests scripts
-	uv run ruff format --check src tests scripts
+	uv run ruff check src tests scripts ../integration
+	uv run ruff format --check src tests scripts ../integration
 typecheck:
 	uv run pyrefly check
-	uv run mypy src
+	uv run pyrefly check ../integration/runtime_gateway.py
+	uv run mypy src ../integration/runtime_gateway.py
 test:
 	uv run pytest --cov=adaptive_alpha --cov-report=term-missing --cov-report=html:.state/coverage-html --cov-report=xml:.state/coverage.xml
 check: lint typecheck test spec

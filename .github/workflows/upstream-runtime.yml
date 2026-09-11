@@ -1,0 +1,54 @@
+name: Pinned Ouroboros integration
+on:
+  push:
+    paths: ['ouroboros-runtime', '.gitmodules', 'integration/**', 'adaptive-alpha/**', '.github/workflows/upstream-runtime.yml']
+  pull_request:
+    paths: ['ouroboros-runtime', '.gitmodules', 'integration/**', 'adaptive-alpha/**', '.github/workflows/upstream-runtime.yml']
+permissions:
+  contents: read
+jobs:
+  upstream-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: adaptive-alpha
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.15'
+      - run: uv sync --locked
+      - run: uv run ruff check ../integration
+      - run: uv run ruff format --check ../integration
+      - run: uv run pyrefly check ../integration/runtime_gateway.py
+      - run: uv run mypy ../integration/runtime_gateway.py
+      - run: uv run pytest tests/test_runtime_connection.py tests/test_runtime_gateway.py
+      - run: python ../integration/bootstrap.py
+      - run: docker compose -f ../integration/compose.yaml up --build -d --wait --wait-timeout 180
+      - run: uv run python ../integration/smoke.py
+      - name: Selected actual upstream workspace contract tests
+        run: >-
+          docker compose -f ../integration/compose.yaml exec -T ouroboros python -m pytest
+          tests/test_headless_cli.py::test_task_api_enqueue_workspace_creates_child_drive
+          tests/test_headless_cli.py::test_task_api_rejects_unsafe_task_id_and_system_workspace
+          tests/test_headless_cli.py::test_api_tasks_create_rejects_internal_task_types
+          -p no:cacheprovider --basetemp=/tmp/ouromarket-protocol-tests
+      - run: uv run python scripts/bootstrap.py
+      - run: docker compose --env-file .env -f compose.yaml -f ../integration/alpha.override.yaml up --build -d --wait --wait-timeout 180
+      - run: docker compose --env-file .env -f compose.yaml -f ../integration/alpha.override.yaml exec -T worker python - < ../integration/worker_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-protocol-acceptance
+          path: integration/.state/protocol-acceptance.json
+          include-hidden-files: true
+      - if: always()
+        run: |
+          if [ -f .env ]; then
+            docker compose --env-file .env -f compose.yaml -f ../integration/alpha.override.yaml down
+          fi
+          docker compose -f ../integration/compose.yaml down

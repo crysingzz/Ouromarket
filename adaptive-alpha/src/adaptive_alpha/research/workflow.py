@@ -26,7 +26,15 @@ def implement_research(
     checkpoint: Callable[[], None],
 ) -> tuple[Candidate, dict[str, Any], dict[str, Any]]:
     # Validate engineering configuration before making a paid researcher request.
-    engineer = OuroborosEngineer(settings.ouroboros_url, settings.ouroboros_workspace)
+    engineer = OuroborosEngineer(
+        settings.ouroboros_url,
+        settings.ouroboros_workspace,
+        service_token=settings.ouroboros_token.get_secret_value()
+        if settings.ouroboros_token
+        else "",
+        provision_workspaces=settings.ouroboros_provision_workspaces,
+    )
+    engineer.check_ready()
     key = settings.openai_api_key
     researcher = OpenAIProvider(key.get_secret_value() if key else "")
     researcher.timeout = timeout

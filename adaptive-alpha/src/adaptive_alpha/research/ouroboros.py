@@ -21,11 +21,37 @@ from adaptive_alpha.research.provider import INSTRUCTIONS
 
 
 class OuroborosEngineer:
-    def __init__(self, url: str, workspace: str, client: httpx.Client | None = None):
+    def __init__(
+        self,
+        url: str,
+        workspace: str,
+        client: httpx.Client | None = None,
+        *,
+        service_token: str = "",
+        provision_workspaces: bool = False,
+    ):
         self.client = client
         if not url or not workspace:
             raise ValueError("ISOLATED_OUROBOROS_NOT_CONFIGURED")
         self.url, self.workspace = url.rstrip("/"), workspace
+        self.headers = {"Authorization": "Bearer " + service_token} if service_token else {}
+        self.provision_workspaces = provision_workspaces
+        if provision_workspaces and len(service_token) < 32:
+            raise ValueError("OUROBOROS_SERVICE_TOKEN_REQUIRED")
+
+    def check_ready(self) -> None:
+        if not self.provision_workspaces:
+            return
+        with (
+            nullcontext(self.client)
+            if self.client
+            else httpx.Client(timeout=10, trust_env=False, follow_redirects=False)
+        ) as client:
+            state = bounded_json(
+                client, "GET", self.url + "/integration/status", headers=self.headers
+            )
+        if state.get("ready") is not True or state.get("execution_enabled") is not True:
+            raise ValueError("OUROBOROS_EXECUTION_NOT_READY")
 
     def generate(self, context: dict[str, Any], timeout: float) -> Candidate:
         """Legacy combined-research adapter, retained for compatibility only."""
@@ -61,13 +87,13 @@ class OuroborosEngineer:
             + work.model_dump_json()
         )
         result = ImplementationBundle.model_validate_json(
-            self._run(prompt, min(timeout, work.max_seconds))
+            self._run(prompt, min(timeout, work.max_seconds), work=work)
         )
         if result.work_order_id != work.id or result.spec_hash != work.spec_hash:
             raise ValueError("OUROBOROS_WORK_ORDER_MISMATCH")
         return result
 
-    def _run(self, prompt: str, timeout: float) -> str:
+    def _run(self, prompt: str, timeout: float, *, work: WorkOrder | None = None) -> str:
         if not math.isfinite(timeout) or not 0 < timeout <= 1800:
             raise ValueError("OUROBOROS_TIMEOUT_BOUND")
         deadline = time.monotonic() + timeout
@@ -76,19 +102,38 @@ class OuroborosEngineer:
             if self.client
             else httpx.Client(timeout=min(30, timeout), trust_env=False, follow_redirects=False)
         ) as client:
+            workspace = self.workspace
+            if self.provision_workspaces:
+                if work is None:
+                    raise ValueError("FROZEN_WORK_ORDER_REQUIRED")
+                provisioned = bounded_json(
+                    client,
+                    "POST",
+                    self.url + "/integration/workspaces",
+                    headers=self.headers,
+                    json=work.model_dump(mode="json"),
+                )
+                workspace = self.workspace.rstrip("/") + "/" + work.id
+                if (
+                    provisioned.get("workspace_root") != workspace
+                    or provisioned.get("work_order_id") != work.id
+                    or provisioned.get("spec_hash") != work.spec_hash
+                ):
+                    raise ValueError("OUROBOROS_WORKSPACE_IDENTITY")
             task = bounded_json(
                 client,
                 "POST",
                 self.url + "/api/tasks",
+                headers=self.headers,
                 json={
                     "description": prompt,
-                    "workspace_root": self.workspace,
+                    "workspace_root": workspace,
                     "workspace_mode": "external",
                     "memory_mode": "forked",
                     "attachments": [],
                     "actor_id": "alpha-research",
                     "source": "adaptive-alpha",
-                    "metadata": {"delegation_role": "root", "source": "adaptive-alpha"},
+                    "metadata": {"source": "adaptive-alpha"},
                     "timeout_sec": timeout,
                 },
             )
@@ -98,7 +143,7 @@ class OuroborosEngineer:
             path = self.url + "/api/tasks/" + quote(task_id, safe="")
             try:
                 while time.monotonic() < deadline:
-                    result = bounded_json(client, "GET", path)
+                    result = bounded_json(client, "GET", path, headers=self.headers)
                     if result.get("status") in {"completed", "done", "succeeded"}:
                         content = result.get("result")
                         if isinstance(content, dict):
@@ -119,4 +164,4 @@ class OuroborosEngineer:
             finally:
                 # Cancellation is idempotent for terminal managed tasks.
                 with suppress(httpx.HTTPError):
-                    client.post(path + "/cancel", json={})
+                    client.post(path + "/cancel", json={}, headers=self.headers)
