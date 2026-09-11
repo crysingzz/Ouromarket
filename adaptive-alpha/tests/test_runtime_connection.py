@@ -37,7 +37,16 @@ def test_authenticated_workspace_task_result_and_cancel():
         calls.append(request)
         assert request.headers["Authorization"] == "Bearer " + TOKEN
         if request.url.path == "/integration/status":
-            return httpx.Response(200, json={"ready": True, "execution_enabled": True})
+            return httpx.Response(
+                200,
+                json={
+                    "ready": True,
+                    "execution_enabled": True,
+                    "release": "6.114.0",
+                    "workspace_root": "/workspaces",
+                    "reason": "READY",
+                },
+            )
         if request.url.path == "/integration/workspaces":
             assert json.loads(request.content) == work.model_dump(mode="json")
             return httpx.Response(
@@ -60,7 +69,14 @@ def test_authenticated_workspace_task_result_and_cancel():
             "http://runtime", "/workspaces", client, service_token=TOKEN, provision_workspaces=True
         )
         adapter.check_ready()
-        assert adapter.status()["upstream_version"] == "unknown"
+        assert adapter.status() == {
+            "configured": True,
+            "ready": True,
+            "execution_enabled": True,
+            "upstream_version": "6.114.0",
+            "workspace_isolation": True,
+            "reason": "READY",
+        }
         assert adapter.implement(work, 5) == bundle
     assert calls[-1].url.path.endswith("/cancel")
 

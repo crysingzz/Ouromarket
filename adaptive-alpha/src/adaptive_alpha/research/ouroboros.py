@@ -6,6 +6,7 @@ an agent with the finance checkout, evaluator files, broker credentials or Docke
 
 import json
 import math
+import re
 import time
 from contextlib import nullcontext, suppress
 from typing import Any
@@ -63,7 +64,8 @@ class OuroborosEngineer:
             state = bounded_json(
                 client, "GET", self.url + "/integration/status", headers=self.headers
             )
-        version = state.get("upstream_version")
+        version = state.get("release", state.get("upstream_version"))
+        reason = state.get("reason")
         return {
             "configured": True,
             "ready": state.get("ready") is True,
@@ -71,7 +73,11 @@ class OuroborosEngineer:
             "upstream_version": version
             if isinstance(version, str) and 0 < len(version) <= 100
             else "unknown",
-            "workspace_isolation": state.get("workspace_isolation") is True,
+            "workspace_isolation": state.get("workspace_isolation") is True
+            or state.get("workspace_root") == self.workspace,
+            "reason": reason
+            if isinstance(reason, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", reason)
+            else None,
         }
 
     def generate(self, context: dict[str, Any], timeout: float) -> Candidate:
