@@ -45,6 +45,35 @@ class ForwardPaper:
             raise ValueError("FORWARD_UNIVERSE_NOT_ADMITTED")
         state = self.store.state(conn, "forward:" + candidate_id)
         if state:
+            if state["status"] == "HALTED":
+                lifecycle = StrategyLifecycle(self.store)
+                tracked = lifecycle.get_in_transaction(conn, candidate_id)
+                if tracked["status"] not in {"SHADOW", "PAPER"} or not tracked.get(
+                    "validation_after"
+                ):
+                    raise ValueError("RENEWED_FORWARD_ADMISSION_REQUIRED")
+                lifecycle._lab(conn, tracked)
+                if self.store.state(conn, "kill", {"halted": True}).get("halted", True):
+                    raise ValueError("RISK_HALTED")
+                self.store.append(
+                    conn,
+                    "forward-recovery",
+                    {
+                        "candidate_id": candidate_id,
+                        "prior_account": dict(state),
+                        "validation_after": tracked["validation_after"],
+                        "actor": actor,
+                        "at": now(),
+                    },
+                )
+                state.update(status="PAPER", halt_reason=None)
+                self.store.set_state(conn, "forward:" + candidate_id, state)
+                self.store.audit(
+                    conn,
+                    "forward.recovered",
+                    actor,
+                    {"candidate_id": candidate_id, "validation_after": tracked["validation_after"]},
+                )
             return state
         state = {
             "candidate_id": candidate_id,

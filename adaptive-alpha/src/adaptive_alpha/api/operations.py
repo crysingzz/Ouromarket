@@ -11,6 +11,7 @@ from adaptive_alpha.research.engineering import EngineeringRegistry
 from adaptive_alpha.research.forward import ForwardPaper
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.performance import PerformanceMonitor
+from adaptive_alpha.research.revalidation import Revalidation
 from adaptive_alpha.store import Store
 
 
@@ -31,9 +32,28 @@ class ArtifactPromotion(Contract):
     benchmark_id: str = Field(min_length=1, max_length=100)
 
 
-def register_operations(app: FastAPI, store: Store, operator: Callable[..., str]) -> None:
+class RevalidationRequest(Contract):
+    reason: str = Field(min_length=8, max_length=1000)
+    expected_version: int = Field(ge=1)
+    request_id: str = Field(min_length=1, max_length=80)
+
+
+def register_operations(
+    app: FastAPI,
+    store: Store,
+    operator: Callable[..., str],
+    hidden: Callable[[str, str, str], dict[str, Any]],
+) -> None:
     lifecycle = StrategyLifecycle(store)
     engineering = EngineeringRegistry(store)
+
+    @app.post("/api/lifecycle/{candidate_id}/revalidate")
+    def revalidate(
+        candidate_id: str, body: RevalidationRequest, actor: Annotated[str, Depends(operator)]
+    ) -> dict[str, Any]:
+        return Revalidation(store, hidden).run(
+            candidate_id, actor, body.request_id, body.expected_version, body.reason
+        )
 
     @app.get("/api/lifecycle", dependencies=[Depends(operator)])
     def overview() -> dict[str, Any]:

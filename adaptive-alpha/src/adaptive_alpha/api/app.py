@@ -548,7 +548,7 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{artifact_id}"'},
         )
 
-    register_operations(app, store, operator)
+    register_operations(app, store, operator, lambda *args: campaigns.hidden(*args))
 
     ui = Path(__file__).resolve().parent.parent / "ui"
     app.mount("/assets", StaticFiles(directory=ui), name="assets")

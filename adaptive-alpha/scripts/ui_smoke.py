@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
+from ui_recovery import check_recovery
 
 root = Path(__file__).resolve().parent.parent
 output = root / ".state" / "ui"
@@ -50,6 +51,8 @@ with sync_playwright() as playwright:
     expect(page.locator("#research-readiness")).to_contain_text("OpenAI key")
     expect(page.get_by_role("heading", name="Версии исследовательского агента")).to_be_visible()
     expect(page.locator("#forward-feed-status")).to_contain_text("Источник данных")
+    expect(page.locator("#campaign-engineer option")).to_have_count(1)
+    expect(page.locator("#campaign-engineer")).to_have_value("ouroboros")
     page.get_by_role("button", name="Настроить OpenAI", exact=True).click()
     expect(page.locator("#provider-key")).to_have_attribute("type", "password")
     page.locator("#close-provider").click()
@@ -91,6 +94,7 @@ with sync_playwright() as playwright:
     page.screenshot(
         path=str(output / "lifecycle-desktop.png"), full_page=True, animations="disabled"
     )
+    check_recovery(page)
     page.get_by_role("button", name="Overview", exact=False).click()
     page.set_viewport_size({"width": 390, "height": 844})
     page.screenshot(path=str(output / "overview-mobile.png"), full_page=True, animations="disabled")

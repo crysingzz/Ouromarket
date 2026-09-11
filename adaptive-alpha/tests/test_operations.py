@@ -69,6 +69,7 @@ def test_lifecycle_http_gate_atomic_shadow_and_manual_demotion(client):
         ("/strategy-comparisons/x", "GET"),
         ("/lifecycle/x/monitor", "POST"),
         ("/lifecycle/x/performance", "GET"),
+        ("/lifecycle/x/revalidate", "POST"),
         ("/rollback/SPY", "GET"),
         ("/engineering", "GET"),
         ("/engineering/artifacts/x", "GET"),

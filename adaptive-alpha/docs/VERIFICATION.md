@@ -1,5 +1,9 @@
 # Verification record
 
+The recovery increment passes **320 tests, 100.00% Python statement coverage (3474/3474)**, Ruff, Pyrefly, mypy and strict OpenSpec (18 items). Tests exercise operator-only HTTP revalidation, preserved account balances/positions/loss watermarks, global-halt rollback, rejected prior-episode proofs and comparisons, evaluator error redaction, concurrent retries, expired leases and stale lifecycle results. External evaluator responses are controlled in these tests; revalidation does not claim a new independent dataset.
+
+Local Docker build, deployed API smoke and offline campaign acceptance pass for the recovery increment. Campaign `6e2c4df9-d063-44a6-9f07-1a5b98ffc195` completed three controlled generations with a real isolated evaluator; all three results replay exactly and the audit chain verifies. Browser desktop/mobile acceptance passes without JavaScript errors. The recovery button sequence uses explicitly intercepted fixture API responses, while the Python HTTP tests exercise the actual recovery service and journal; it does not submit synthetic recovery proof to the deployed database. The browser also verifies that the campaign UI offers only Ouroboros.
+
 The fixed-spec generation increment passes **304 tests, 100.00% Python statement coverage (3386/3386)**, Ruff, Pyrefly, mypy and strict OpenSpec (18 items). New HTTP/worker tests verify the default Ouroboros route, rejection of retired or caller-forged modes, preserved immutable legacy requests, explicit fixture provenance and no combined-generator fallback. This increment removes the obsolete worker branch; coverage remains complete with fewer production statements.
 
 ## v0.3 — 2026-09-10

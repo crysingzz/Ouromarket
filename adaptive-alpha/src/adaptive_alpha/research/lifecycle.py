@@ -113,6 +113,14 @@ class StrategyLifecycle:
             and r.get("public", {}).get("grammar") == "signal-python-v1"
             and timestamp(r["at"])
             > timestamp(state.get("validation_after", "1970-01-01T00:00:00Z"))
+            and (
+                not state.get("validation_after")
+                or (
+                    r.get("validation_after") == state["validation_after"]
+                    and r.get("source_hash") == state["source_hash"]
+                    and r.get("dataset_id") == state["dataset_id"]
+                )
+            )
         ]
         if not valid:
             raise ValueError("INDEPENDENT_VALIDATION_REQUIRED")
@@ -183,6 +191,12 @@ class StrategyLifecycle:
             observations = self.store.related(
                 conn, "lifecycle-observation", "candidate_id", candidate_id
             )
+            observations = [
+                o
+                for o in observations
+                if timestamp(o["bar"])
+                > timestamp(state.get("validation_after", "1970-01-01T00:00:00Z"))
+            ]
             if (
                 not observations
                 or self.store.state(conn, "forward:" + candidate_id).get("status") != "PAPER"
@@ -196,11 +210,17 @@ class StrategyLifecycle:
             comparison = self._comparison(conn, comparison_id)
             if comparison["challenger_id"] != candidate_id or comparison["verdict"] != "PASS":
                 raise ValueError("MATCHED_COMPARISON_REQUIRED")
+            if comparison.get("challenger_validation_after") != state.get("validation_after"):
+                raise ValueError("STALE_COMPARISON_EPISODE")
             active_key = "active-paper:" + state["symbol"]
             active_id = self.store.state(conn, active_key).get("candidate_id")
             if active_id != comparison["active_id"]:
                 raise ValueError("ACTIVE_BASELINE_CHANGED")
             if active_id:
+                if comparison.get("active_validation_after") != self.get_in_transaction(
+                    conn, active_id
+                ).get("validation_after"):
+                    raise ValueError("STALE_COMPARISON_EPISODE")
                 self._change(
                     conn,
                     self.get_in_transaction(conn, active_id),
@@ -308,6 +328,8 @@ class StrategyLifecycle:
                 "registered_at": now(),
                 "challenger_source_hash": challenger["source_hash"],
                 "active_source_hash": active["source_hash"] if active else "cash-zero-return",
+                "challenger_validation_after": challenger.get("validation_after"),
+                "active_validation_after": active.get("validation_after") if active else None,
                 "lab_protocol": "generated-research-v1",
                 "runtime": "signal-python-v1",
                 "baseline": "active-paper" if active else "cash-zero-return",

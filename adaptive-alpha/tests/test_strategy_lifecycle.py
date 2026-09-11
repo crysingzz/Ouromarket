@@ -61,6 +61,11 @@ class Laboratory:
                 {
                     "id": identity,
                     "status": "PASS",
+                    "validation_after": self.store.state(conn, "lifecycle:" + identity).get(
+                        "validation_after"
+                    ),
+                    "source_hash": self.store.get(conn, identity, "candidate")["source_hash"],
+                    "dataset_id": self.store.get(conn, identity, "candidate")["dataset_id"],
                     "hidden": {"verdict": "PASS"},
                     "public": {
                         "verdict": "PASS",
