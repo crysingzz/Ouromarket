@@ -13,6 +13,7 @@ from adaptive_alpha.config import Settings
 from adaptive_alpha.domain import digest, new_id, now
 from adaptive_alpha.research.backtest import backtest
 from adaptive_alpha.research.contracts import CampaignRequest, Candidate, DatasetImport
+from adaptive_alpha.research.engineering_queue import EngineeringQueue
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.literature import search_sources
 from adaptive_alpha.research.program import Program
@@ -80,7 +81,9 @@ class Campaigns:
                 state["status"] = "CANCELLED"
                 self.store.set_state(conn, "campaign:" + identity, state)
                 self.store.audit(conn, "campaign.cancelled", "operator", {"id": identity})
-            return state
+            result = state
+        EngineeringQueue(self.store).cancel_campaign(identity, "operator")
+        return result
 
     def claim(self) -> tuple[dict[str, Any], str] | None:
         with self.store.transaction() as conn:

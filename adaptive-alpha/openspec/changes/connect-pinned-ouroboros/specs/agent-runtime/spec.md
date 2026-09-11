@@ -65,3 +65,21 @@ otherwise the adapter SHALL fail closed.
 
 - **WHEN** the retained runtime task reports a different workspace
 - **THEN** the adapter rejects the result as an identity conflict
+
+### Requirement: Separately leased engineering delivery
+
+The research campaign SHALL enqueue a retained engineering attempt and wait for its immutable
+result. A dedicated engineering worker SHALL claim that attempt under a lease which is distinct
+from the campaign lease. An expired delivery SHALL be reclaimed using the same WorkOrder and
+deterministic runtime task identity. Accepted bundles and server benchmarks SHALL be reused after
+a worker restart. Queue completion and the terminal attempt event SHALL be committed atomically.
+
+#### Scenario: Engineering worker stops after runtime completion
+
+- **WHEN** its lease expires after the bundle was retained but before the attempt was completed
+- **THEN** another worker reuses the bundle, completes the benchmark and does not invoke the model again
+
+#### Scenario: Cancellation races with successful completion
+
+- **WHEN** a campaign or operator requests cancellation while the engineering lease is active
+- **THEN** the worker cannot commit success and propagates cancellation to the bound runtime task

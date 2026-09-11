@@ -28,7 +28,7 @@ docker compose --env-file adaptive-alpha/.env \
   -f adaptive-alpha/compose.yaml -f integration/alpha.override.yaml up --build -d
 ```
 
-Override добавляет только worker в закрытую сеть инженера и монтирует отдельный сервисный токен. Он включает серверное создание workspace. API, база, оценщик и брокер не получают Docker socket или исходники Ouroboros. При иной структуре checkout можно явно задать абсолютный `ALPHA_ENGINEERING_TOKEN_FILE`. Относительные пути Compose разрешаются относительно первого файла `adaptive-alpha/compose.yaml`.
+Override добавляет research-worker и отдельный engineering-worker в закрытую сеть инженера; сервисный токен получает только этот контур. Research-worker фиксирует спецификацию и ждёт устойчивую очередь, engineering-worker арендует WorkOrder и обращается к runtime. Он включает серверное создание workspace. API, оценщик и брокер не получают Docker socket или исходники Ouroboros. При иной структуре checkout можно явно задать абсолютный `ALPHA_ENGINEERING_TOKEN_FILE`. Относительные пути Compose разрешаются относительно первого файла `adaptive-alpha/compose.yaml`.
 
 Для каждого WorkOrder создаётся Git-репозиторий `/workspaces/work-<uuid>` с зафиксированным `work-order.json`; он не пересекается с `/opt/ouroboros` или `/state/data`. Повтор требует совпадения манифеста и хеша спецификации. Подмена пути, symlink, изменение манифеста или недопустимый тип задачи отклоняются. Рабочие директории сохраняются на отдельном volume для диагностики; автоматического удаления сейчас нет. Это разделение заданий внутри одного доверенного сервиса, ещё не полноценная изоляция произвольного кода между арендаторами.
 

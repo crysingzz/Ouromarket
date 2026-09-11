@@ -353,12 +353,14 @@ def create_app(
     def readiness() -> dict[str, Any]:
         with store.transaction() as conn:
             worker = store.state(conn, "research-worker")
+            engineering_worker = store.state(conn, "engineering-worker")
         return {
             "provider": "openai",
             "default_model": load_provider(config.provider_vault_dir).get(
                 "model", config.openai_model
             ),
             "worker": worker,
+            "engineering_worker": engineering_worker,
             "literature": ["openalex", "arxiv", "semantic_scholar"],
             "program_grammar": "signal-python-v1",
             "generated_capital_admission": False,

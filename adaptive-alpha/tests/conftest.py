@@ -29,6 +29,7 @@ def settings(tmp_path: Path) -> Settings:
         evaluator_token=SecretStr(EVALUATOR),
         secrets_dir=tmp_path / "missing",
         provider_vault_dir=tmp_path / "provider-vault",
+        engineering_inline=True,
     )
 
 

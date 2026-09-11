@@ -208,6 +208,17 @@ class EngineeringRegistry:
                 "created_at": now(),
             }
             self.store.append(conn, "engineering-attempt", record, identity)
+            self.store.set_state(
+                conn,
+                "engineering-attempt:" + identity,
+                {
+                    "status": "QUEUED",
+                    "lease": None,
+                    "lease_until": 0.0,
+                    "deliveries": 0,
+                    "cancel_requested": False,
+                },
+            )
             self.store.audit(
                 conn,
                 "engineering.attempt_queued",
@@ -273,7 +284,23 @@ class EngineeringRegistry:
                     attempt["id"],
                 )
                 latest = history[-1] if history else {}
-                result.append({**attempt, **latest, "id": attempt["id"], "events": history})
+                delivery = self.store.state(
+                    conn,
+                    "engineering-attempt:" + attempt["id"],
+                    {"status": "QUEUED", "deliveries": 0},
+                )
+                result.append(
+                    {
+                        **attempt,
+                        **latest,
+                        "id": attempt["id"],
+                        "events": history,
+                        "delivery": {
+                            "status": delivery.get("status", "QUEUED"),
+                            "deliveries": int(delivery.get("deliveries", 0)),
+                        },
+                    }
+                )
             return result
 
     def _list(self, kind: str) -> list[dict[str, Any]]:

@@ -7,6 +7,13 @@ services:
       ALPHA_OUROBOROS_PROVISION_WORKSPACES: "true"
     secrets: [ouroboros_token]
     networks: [engineering]
+  engineering-worker:
+    environment:
+      ALPHA_OUROBOROS_URL: http://ouroboros:8765
+      ALPHA_OUROBOROS_WORKSPACE: /workspaces
+      ALPHA_OUROBOROS_PROVISION_WORKSPACES: "true"
+    secrets: [ouroboros_token]
+    networks: [database, engineering]
 networks:
   engineering:
     external: true

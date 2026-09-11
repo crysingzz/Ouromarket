@@ -56,6 +56,20 @@ services:
       migrate: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
       evaluator: {condition: service_healthy}
+  engineering-worker:
+    <<: *hardened
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.engineering_worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_SECRETS_DIR: /run/secrets
+      ALPHA_OUROBOROS_URL: ${ALPHA_OUROBOROS_URL:-}
+      ALPHA_OUROBOROS_WORKSPACE: ${ALPHA_OUROBOROS_WORKSPACE:-}
+    networks: [database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
   evaluator:
     <<: *hardened
     build: *alpha-build

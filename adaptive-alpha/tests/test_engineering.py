@@ -359,6 +359,7 @@ def test_engineering_attempts_are_append_only_and_transition_once(registry):
     retained = registry.list_attempts()[0]
     assert completed["bundle_id"] == "bundle"
     assert retained["status"] == "SUCCEEDED" and len(retained["events"]) == 3
+    assert retained["delivery"] == {"status": "QUEUED", "deliveries": 0}
     with pytest.raises(ValueError, match="TRANSITION_INVALID"):
         registry.transition_attempt(attempt["id"], "FAILED", "late", "worker")
     with pytest.raises(ValueError, match="STAGE_INVALID"):

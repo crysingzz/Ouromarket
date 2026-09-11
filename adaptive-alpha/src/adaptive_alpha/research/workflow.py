@@ -2,7 +2,6 @@
 
 import re
 from collections.abc import Callable
-from contextlib import suppress
 from typing import Any
 
 from adaptive_alpha.config import Settings
@@ -10,19 +9,20 @@ from adaptive_alpha.research.contracts import Candidate
 from adaptive_alpha.research.engineering import (
     RESEARCH_INSTRUCTIONS,
     EngineeringRegistry,
-    EngineeringStatus,
     ResearchSpec,
 )
+from adaptive_alpha.research.engineering_queue import EngineeringQueue
+from adaptive_alpha.research.engineering_worker import (
+    _failure_code as engineering_failure_code,
+)
+from adaptive_alpha.research.engineering_worker import run_once as run_engineering_once
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 from adaptive_alpha.research.provider import OpenAIProvider
 from adaptive_alpha.store import Store
 
 
 def _failure_code(error: Exception) -> str:
-    message = str(error)
-    if re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", message):
-        return message
-    return type(error).__name__.upper()[:100]
+    return engineering_failure_code(error)
 
 
 def implement_research(
@@ -84,38 +84,23 @@ def implement_research(
     engineering_attempt = registry.create_attempt(
         work.id, context["campaign_id"], context["attempt_id"], "worker"
     )
-    stage = "dispatch"
+    queue = EngineeringQueue(store)
     try:
         checkpoint()
-        registry.transition_attempt(engineering_attempt["id"], "RUNNING", "ouroboros", "worker")
-        bundle = engineer.implement(work, timeout, checkpoint=checkpoint)
-        checkpoint()
-        stage = "contract-validation"
-        registry.transition_attempt(engineering_attempt["id"], "VALIDATING", stage, "worker")
-        record = registry.accept(bundle, "ouroboros")
-        benchmark = registry.benchmark(record["id"], "worker")
-        if not benchmark["passed"]:
-            raise ValueError("IMPLEMENTATION_CONTRACT_FAILED")
-        registry.transition_attempt(
-            engineering_attempt["id"],
-            "SUCCEEDED",
-            "complete",
-            "worker",
-            bundle_id=record["id"],
-            benchmark_id=benchmark["id"],
+        if settings.engineering_inline:
+            run_engineering_once(store, settings, engineering_attempt["id"])
+        record, benchmark = queue.wait(
+            engineering_attempt["id"], timeout, checkpoint, poll_seconds=0.001
         )
     except Exception as error:
-        status: EngineeringStatus = (
-            "CANCELLED" if str(error) == "CAMPAIGN_OWNERSHIP_LOST" else "FAILED"
+        reason = str(error)
+        queue.request_cancel(
+            engineering_attempt["id"],
+            "research-worker",
+            reason=reason
+            if re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", reason)
+            else "RESEARCH_PIPELINE_ERROR",
         )
-        with suppress(Exception):
-            registry.transition_attempt(
-                engineering_attempt["id"],
-                status,
-                stage,
-                "worker",
-                reason=_failure_code(error),
-            )
         raise
     candidate = Candidate(
         name=spec.name,
@@ -124,7 +109,7 @@ def implement_research(
         evidence_ids=list(spec.evidence_ids),
         contradictions=list(spec.contradictions),
         failure_modes=list(spec.failure_modes),
-        source=bundle.source,
+        source=record["source"],
     )
     return (
         candidate,
