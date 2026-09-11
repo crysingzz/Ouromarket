@@ -1,6 +1,6 @@
 # ADR 0001: Keep research proposals outside financial authority
 
-Status: accepted for initial implementation.
+Status: accepted for initial implementation. The subsequent native-tool boundary is specified in [ADR 0002](0002-isolated-native-tools.md); its production acceptance and registry integration remain pending.
 
 The existing Ouroboros runtime can modify files and invoke tools. Importing it into an investment service would share privileges with risk, audit and broker execution. The platform is a separate package with a provider-independent EngineeringAgent contract. Future agents receive only research HTTP identity and candidate workspace access, never the host repository, database, Docker socket, hidden service credential or operator token.
 
