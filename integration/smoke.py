@@ -9,7 +9,7 @@ from uuid import uuid4
 import httpx
 
 from adaptive_alpha.domain import digest
-from adaptive_alpha.research.engineering import ResearchSpec, WorkOrder
+from adaptive_alpha.research.engineering import ResearchSpec, WorkOrder, runtime_task_id
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 
 root = Path(__file__).resolve().parent
@@ -94,6 +94,7 @@ with httpx.Client(base_url=url, timeout=30, trust_env=False) as client:
             "source": "adaptive-alpha",
             "timeout_sec": 10,
             "metadata": {"source": "adaptive-alpha"},
+            "task_id": runtime_task_id(work.id),
         },
     )
     assert admitted.status_code == 503

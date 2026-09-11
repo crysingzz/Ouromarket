@@ -139,6 +139,7 @@ class RuntimeGateway:
                 "source",
                 "metadata",
                 "timeout_sec",
+                "task_id",
             }
             workspace = Path(body.get("workspace_root", ""))
             if set(body) - allowed or workspace.parent != self.root or workspace.is_symlink():
@@ -152,6 +153,9 @@ class RuntimeGateway:
             work = json.loads((workspace / "work-order.json").read_text())
             if provision(self.root, work)["workspace_root"] != str(workspace):
                 raise ValueError("WORKSPACE_IDENTITY_CONFLICT")
+            expected_task_id = "alpha-" + hashlib.sha256(work["id"].encode()).hexdigest()[:32]
+            if body.get("task_id") != expected_task_id:
+                raise ValueError("TASK_IDENTITY_CONFLICT")
             body["allowed_resources"] = {"network": False}
             payload = canonical(body).encode()
         except (ValueError, OSError, TypeError, subprocess.SubprocessError):

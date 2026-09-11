@@ -16,7 +16,7 @@ import httpx
 
 from adaptive_alpha.domain import digest
 from adaptive_alpha.research.contracts import Candidate
-from adaptive_alpha.research.engineering import ImplementationBundle, WorkOrder
+from adaptive_alpha.research.engineering import ImplementationBundle, WorkOrder, runtime_task_id
 from adaptive_alpha.research.literature import bounded_json
 from adaptive_alpha.research.provider import INSTRUCTIONS
 
@@ -147,30 +147,52 @@ class OuroborosEngineer:
                     or provisioned.get("spec_hash") != work.spec_hash
                 ):
                     raise ValueError("OUROBOROS_WORKSPACE_IDENTITY")
-            task = bounded_json(
-                client,
-                "POST",
-                self.url + "/api/tasks",
-                headers=self.headers,
-                json={
-                    "description": prompt,
-                    "workspace_root": workspace,
-                    "workspace_mode": "external",
-                    "memory_mode": "forked",
-                    "attachments": [],
-                    "actor_id": "alpha-research",
-                    "source": "adaptive-alpha",
-                    "metadata": {"source": "adaptive-alpha"},
-                    "timeout_sec": timeout,
-                },
-            )
+            expected_task_id = runtime_task_id(work.id) if work else ""
+            resumed: dict[str, Any] | None = None
+            try:
+                task = bounded_json(
+                    client,
+                    "POST",
+                    self.url + "/api/tasks",
+                    headers=self.headers,
+                    json={
+                        "description": prompt,
+                        "workspace_root": workspace,
+                        "workspace_mode": "external",
+                        "memory_mode": "forked",
+                        "attachments": [],
+                        "actor_id": "alpha-research",
+                        "source": "adaptive-alpha",
+                        "metadata": {"source": "adaptive-alpha"},
+                        "timeout_sec": timeout,
+                        **({"task_id": expected_task_id} if work else {}),
+                    },
+                )
+            except httpx.HTTPStatusError as error:
+                if not work or error.response.status_code != 409:
+                    raise
+                task = {"task_id": expected_task_id}
+                resumed = bounded_json(
+                    client,
+                    "GET",
+                    self.url + "/api/tasks/" + quote(expected_task_id, safe=""),
+                    headers=self.headers,
+                )
+                if (
+                    resumed.get("task_id") != expected_task_id
+                    or resumed.get("workspace_root") != workspace
+                ):
+                    raise ValueError("OUROBOROS_TASK_RESUME_MISMATCH") from error
             task_id = str(task.get("task_id", ""))
             if not task_id or len(task_id) > 100:
                 raise ValueError("OUROBOROS_TASK_ID_REQUIRED")
+            if work and task_id != runtime_task_id(work.id):
+                raise ValueError("OUROBOROS_TASK_ID_MISMATCH")
             path = self.url + "/api/tasks/" + quote(task_id, safe="")
             try:
                 while time.monotonic() < deadline:
-                    result = bounded_json(client, "GET", path, headers=self.headers)
+                    result = resumed or bounded_json(client, "GET", path, headers=self.headers)
+                    resumed = None
                     if result.get("status") in {"completed", "done", "succeeded"}:
                         content = result.get("result")
                         if isinstance(content, dict):

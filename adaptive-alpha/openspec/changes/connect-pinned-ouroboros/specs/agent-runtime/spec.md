@@ -48,3 +48,20 @@ receiving the runtime service credential. Provider exception text SHALL NOT be r
 
 - **WHEN** the worker probes a configured runtime whose execution profile is not admitted
 - **THEN** the UI reports it as connected but unavailable without exposing credentials
+
+### Requirement: Idempotent runtime task identity
+
+Each WorkOrder SHALL map to one deterministic runtime task identifier. The gateway SHALL
+reject a different identifier for that workspace. A repeated create that reports an existing
+task MAY resume polling only when the retained task identifier and workspace both match;
+otherwise the adapter SHALL fail closed.
+
+#### Scenario: Delivery result is ambiguous
+
+- **WHEN** a retry receives an already-exists response for the same WorkOrder task
+- **THEN** it reads and resumes the bound task instead of creating a second model execution
+
+#### Scenario: Existing task belongs to another workspace
+
+- **WHEN** the retained runtime task reports a different workspace
+- **THEN** the adapter rejects the result as an identity conflict

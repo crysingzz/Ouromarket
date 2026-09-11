@@ -11,7 +11,7 @@ from test_engineering import SOURCE, spec
 from adaptive_alpha.config import Settings
 from adaptive_alpha.domain import digest, new_id
 from adaptive_alpha.research import worker, workflow
-from adaptive_alpha.research.engineering import ImplementationBundle, WorkOrder
+from adaptive_alpha.research.engineering import ImplementationBundle, WorkOrder, runtime_task_id
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 
 TOKEN = "service-credential-" + "a" * 40
@@ -61,7 +61,8 @@ def test_authenticated_workspace_task_result_and_cancel():
             body = json.loads(request.content)
             assert body["workspace_root"] == "/workspaces/" + work.id
             assert body["metadata"] == {"source": "adaptive-alpha"}
-            return httpx.Response(201, json={"task_id": "t1"})
+            assert body["task_id"] == runtime_task_id(work.id)
+            return httpx.Response(201, json={"task_id": body["task_id"]})
         return httpx.Response(200, json={"status": "completed", "result": bundle.model_dump_json()})
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -79,6 +80,93 @@ def test_authenticated_workspace_task_result_and_cancel():
         }
         assert adapter.implement(work, 5) == bundle
     assert calls[-1].url.path.endswith("/cancel")
+
+
+def test_runtime_cannot_substitute_deterministic_task_identity():
+    work = work_order()
+
+    def handler(request):
+        if request.url.path == "/integration/workspaces":
+            return httpx.Response(
+                201,
+                json={
+                    "workspace_root": "/workspaces/" + work.id,
+                    "work_order_id": work.id,
+                    "spec_hash": work.spec_hash,
+                },
+            )
+        return httpx.Response(201, json={"task_id": "other"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = OuroborosEngineer(
+            "http://runtime", "/workspaces", client, service_token=TOKEN, provision_workspaces=True
+        )
+        with pytest.raises(ValueError, match="TASK_ID_MISMATCH"):
+            adapter.implement(work, 5)
+
+
+def test_runtime_create_failure_other_than_conflict_propagates():
+    work = work_order()
+
+    def handler(request):
+        if request.url.path == "/integration/workspaces":
+            return httpx.Response(
+                201,
+                json={
+                    "workspace_root": "/workspaces/" + work.id,
+                    "work_order_id": work.id,
+                    "spec_hash": work.spec_hash,
+                },
+            )
+        return httpx.Response(400, json={"error": "rejected"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = OuroborosEngineer(
+            "http://runtime", "/workspaces", client, service_token=TOKEN, provision_workspaces=True
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            adapter.implement(work, 5)
+
+
+@pytest.mark.parametrize("collision", [False, True])
+def test_retry_resumes_only_the_bound_runtime_task(collision):
+    work = work_order()
+    expected = runtime_task_id(work.id)
+    bundle = ImplementationBundle(work_order_id=work.id, spec_hash=work.spec_hash, source=SOURCE)
+
+    def handler(request):
+        if request.url.path == "/integration/workspaces":
+            return httpx.Response(
+                201,
+                json={
+                    "workspace_root": "/workspaces/" + work.id,
+                    "work_order_id": work.id,
+                    "spec_hash": work.spec_hash,
+                },
+            )
+        if request.url.path == "/api/tasks":
+            return httpx.Response(409, json={"error": "already exists"})
+        if request.url.path.endswith("/cancel"):
+            return httpx.Response(200, json={})
+        return httpx.Response(
+            200,
+            json={
+                "task_id": expected,
+                "workspace_root": "/other" if collision else "/workspaces/" + work.id,
+                "status": "completed",
+                "result": bundle.model_dump_json(),
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = OuroborosEngineer(
+            "http://runtime", "/workspaces", client, service_token=TOKEN, provision_workspaces=True
+        )
+        if collision:
+            with pytest.raises(ValueError, match="TASK_RESUME_MISMATCH"):
+                adapter.implement(work, 5)
+        else:
+            assert adapter.implement(work, 5) == bundle
 
 
 @pytest.mark.parametrize(

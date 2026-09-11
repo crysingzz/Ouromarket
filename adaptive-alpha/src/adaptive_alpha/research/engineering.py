@@ -128,6 +128,10 @@ def runtime_digest() -> str:
     return hashlib.sha256(Path(__file__).with_name("program.py").read_bytes()).hexdigest()
 
 
+def runtime_task_id(work_order_id: str) -> str:
+    return "alpha-" + hashlib.sha256(work_order_id.encode()).hexdigest()[:32]
+
+
 class EngineeringRegistry:
     def __init__(self, store: Store):
         self.store = store
@@ -195,6 +199,7 @@ class EngineeringRegistry:
             record = {
                 "id": identity,
                 "work_order_id": work.id,
+                "runtime_task_id": runtime_task_id(work.id),
                 "campaign_id": campaign_id,
                 "research_attempt_id": research_attempt_id,
                 "status": "QUEUED",

@@ -15,6 +15,7 @@ from adaptive_alpha.research.engineering import (
     ImplementationBundle,
     ResearchSpec,
     SignalCase,
+    runtime_task_id,
 )
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 from adaptive_alpha.store import Store
@@ -297,7 +298,7 @@ def test_ouroboros_engineer_receives_frozen_spec_and_cannot_substitute_result(re
         calls.append(request)
         return httpx.Response(
             200,
-            json={"task_id": "task"}
+            json={"task_id": runtime_task_id(work.id)}
             if request.method == "POST"
             else {
                 "status": "completed",
@@ -310,12 +311,13 @@ def test_ouroboros_engineer_receives_frozen_spec_and_cannot_substitute_result(re
         assert adapter.implement(work, 10) == result
         sent = json.loads(calls[0].content)
         assert sent["timeout_sec"] == 2
+        assert sent["task_id"] == runtime_task_id(work.id)
         assert sent["workspace_mode"] == "external" and sent["memory_mode"] == "forked"
         assert "Do not invent" in sent["description"]
         assert (
             work.spec_hash in sent["description"] and '"token_budget":1000' in sent["description"]
         )
-        assert calls[-1].url.path == "/api/tasks/task/cancel"
+        assert calls[-1].url.path == f"/api/tasks/{runtime_task_id(work.id)}/cancel"
         result = result.model_copy(update={"work_order_id": "other"})
         with pytest.raises(ValueError, match="WORK_ORDER_MISMATCH"):
             adapter.implement(work, 1)
@@ -343,6 +345,7 @@ def test_engineering_attempts_are_append_only_and_transition_once(registry):
         "tokens": 1234,
         "seconds": 45,
     }
+    assert attempt["runtime_task_id"] == runtime_task_id(work.id)
     registry.transition_attempt(attempt["id"], "RUNNING", "ouroboros", "worker")
     registry.transition_attempt(attempt["id"], "VALIDATING", "contract", "worker")
     completed = registry.transition_attempt(

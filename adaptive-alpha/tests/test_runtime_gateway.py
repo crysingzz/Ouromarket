@@ -13,6 +13,8 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from test_runtime_connection import TOKEN, work_order
 
+from adaptive_alpha.research.engineering import runtime_task_id
+
 module_spec = importlib.util.spec_from_file_location(
     "runtime_gateway", Path(__file__).resolve().parents[2] / "integration/runtime_gateway.py"
 )
@@ -89,6 +91,7 @@ def test_gateway_task_scope_and_provisioning(runtime):
     response = client.post("/integration/workspaces", json=work)
     assert response.status_code == 201
     body = {
+        "task_id": runtime_task_id(work["id"]),
         "description": "implement frozen specification",
         "workspace_root": response.json()["workspace_root"],
         "workspace_mode": "external",
@@ -102,6 +105,7 @@ def test_gateway_task_scope_and_provisioning(runtime):
         {"type": "evolution"},
         {"memory_mode": "shared"},
         {"attachments": ["secret"]},
+        {"task_id": "wrong"},
     ):
         assert client.post("/api/tasks", json={**body, **update}).status_code == 400
     assert client.get("/api/tasks/t1").json()["upstream"]

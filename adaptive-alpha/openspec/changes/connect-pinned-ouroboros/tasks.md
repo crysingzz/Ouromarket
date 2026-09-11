@@ -13,6 +13,7 @@
 - [ ] Accept the executing Ouroboros and native tools under gVisor with inherited limits.
 - [ ] Run an actual frozen WorkOrder through the model and collect versioned strategy/skill/subagent/harness artifacts.
 - [x] Retain append-only engineering attempts, budgets, terminal state, audit and operator UI.
+- [x] Bind one deterministic upstream task identity to each WorkOrder and safely resume an already-created matching task.
 - [ ] Add a separately leased engineering queue with crash-safe task resumption and explicit cancellation propagation.
 - [ ] Benchmark and admit reusable tools and self-improvement against independent engineering tasks.
 
