@@ -10,7 +10,7 @@ from test_engineering import SOURCE, spec
 
 from adaptive_alpha.config import Settings
 from adaptive_alpha.domain import digest, new_id
-from adaptive_alpha.research import workflow
+from adaptive_alpha.research import worker, workflow
 from adaptive_alpha.research.engineering import ImplementationBundle, WorkOrder
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 
@@ -60,6 +60,7 @@ def test_authenticated_workspace_task_result_and_cancel():
             "http://runtime", "/workspaces", client, service_token=TOKEN, provision_workspaces=True
         )
         adapter.check_ready()
+        assert adapter.status()["upstream_version"] == "unknown"
         assert adapter.implement(work, 5) == bundle
     assert calls[-1].url.path.endswith("/cancel")
 
@@ -124,3 +125,31 @@ def test_service_token_is_loaded_from_mounted_secret(tmp_path):
     settings = Settings(secrets_dir=tmp_path, provider_vault_dir=tmp_path)
     assert settings.ouroboros_token.get_secret_value() == TOKEN
     assert TOKEN not in repr(settings)
+
+
+def test_worker_reports_bounded_runtime_state(monkeypatch, tmp_path):
+    settings = Settings(
+        secrets_dir=tmp_path,
+        provider_vault_dir=tmp_path,
+        ouroboros_url="http://runtime",
+        ouroboros_workspace="/workspaces",
+        ouroboros_token=SecretStr(TOKEN),
+        ouroboros_provision_workspaces=True,
+    )
+    monkeypatch.setattr(
+        OuroborosEngineer,
+        "status",
+        Mock(return_value={"configured": True, "ready": True, "upstream_version": "6.114.0"}),
+    )
+    assert worker.engineering_runtime_status(settings)["ready"] is True
+    monkeypatch.setattr(OuroborosEngineer, "status", Mock(side_effect=RuntimeError("secret text")))
+    failed = worker.engineering_runtime_status(settings)
+    assert failed["reason"] == "RUNTIMEERROR" and "secret text" not in str(failed)
+    settings.ouroboros_url = ""
+    assert worker.engineering_runtime_status(settings)["reason"] == "NOT_CONFIGURED"
+
+
+def test_legacy_runtime_status_is_never_marked_ready():
+    state = OuroborosEngineer("http://runtime", "/workspace").status()
+    assert state["reason"] == "LEGACY_RUNTIME_UNVERIFIED" and state["ready"] is False
+    assert workflow._failure_code(RuntimeError("provider secret text")) == "RUNTIMEERROR"

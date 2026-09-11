@@ -1,6 +1,8 @@
 """Research owns the frozen hypothesis; Ouroboros owns its implementation."""
 
+import re
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from adaptive_alpha.config import Settings
@@ -8,11 +10,19 @@ from adaptive_alpha.research.contracts import Candidate
 from adaptive_alpha.research.engineering import (
     RESEARCH_INSTRUCTIONS,
     EngineeringRegistry,
+    EngineeringStatus,
     ResearchSpec,
 )
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 from adaptive_alpha.research.provider import OpenAIProvider
 from adaptive_alpha.store import Store
+
+
+def _failure_code(error: Exception) -> str:
+    message = str(error)
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", message):
+        return message
+    return type(error).__name__.upper()[:100]
 
 
 def implement_research(
@@ -71,13 +81,42 @@ def implement_research(
                 "research_usage": usage,
             },
         )
-    checkpoint()
-    bundle = engineer.implement(work, timeout)
-    checkpoint()
-    record = registry.accept(bundle, "ouroboros")
-    benchmark = registry.benchmark(record["id"], "worker")
-    if not benchmark["passed"]:
-        raise ValueError("IMPLEMENTATION_CONTRACT_FAILED")
+    engineering_attempt = registry.create_attempt(
+        work.id, context["campaign_id"], context["attempt_id"], "worker"
+    )
+    stage = "dispatch"
+    try:
+        checkpoint()
+        registry.transition_attempt(engineering_attempt["id"], "RUNNING", "ouroboros", "worker")
+        bundle = engineer.implement(work, timeout)
+        checkpoint()
+        stage = "contract-validation"
+        registry.transition_attempt(engineering_attempt["id"], "VALIDATING", stage, "worker")
+        record = registry.accept(bundle, "ouroboros")
+        benchmark = registry.benchmark(record["id"], "worker")
+        if not benchmark["passed"]:
+            raise ValueError("IMPLEMENTATION_CONTRACT_FAILED")
+        registry.transition_attempt(
+            engineering_attempt["id"],
+            "SUCCEEDED",
+            "complete",
+            "worker",
+            bundle_id=record["id"],
+            benchmark_id=benchmark["id"],
+        )
+    except Exception as error:
+        status: EngineeringStatus = (
+            "CANCELLED" if str(error) == "CAMPAIGN_OWNERSHIP_LOST" else "FAILED"
+        )
+        with suppress(Exception):
+            registry.transition_attempt(
+                engineering_attempt["id"],
+                status,
+                stage,
+                "worker",
+                reason=_failure_code(error),
+            )
+        raise
     candidate = Candidate(
         name=spec.name,
         hypothesis=spec.hypothesis,
@@ -103,5 +142,6 @@ def implement_research(
             "engineering_bundle_id": record["id"],
             "engineering_artifact_ids": record["artifact_ids"],
             "implementation_benchmark_id": benchmark["id"],
+            "engineering_attempt_id": engineering_attempt["id"],
         },
     )

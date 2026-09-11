@@ -13,4 +13,4 @@ ouromarket/
 └── integration/          # Docker, авторизация и отдельные Git-workspace
 ```
 
-После клонирования: `git submodule update --init ouroboros-runtime`. [Инструкция интеграции](integration/README.md) запускает настоящий сервер в режиме проверки протокола. Healthcheck и workspace работают; без модели upstream отклоняет задания с `worker_pool_unavailable`. Полный инженерный цикл и реальная торговля ещё не включены.
+После клонирования: `git submodule update --init ouroboros-runtime`. [Инструкция интеграции](integration/README.md) запускает настоящий сервер в режиме проверки протокола. Healthcheck и workspace работают; без модели upstream отклоняет задания с `worker_pool_unavailable`. Adaptive Alpha уже сохраняет бюджет и все стадии инженерного запуска в append-only журнале и показывает очищенное состояние runtime в UI. Исполняющий model profile, crash-safe очередь и реальная торговля ещё не включены.

@@ -31,3 +31,20 @@ An ordinary campaign configured for the integrated runtime SHALL check execution
 
 - **WHEN** the runtime has no admitted execution profile
 - **THEN** the campaign fails before spending researcher tokens, while explicit protocol acceptance can exercise task admission and cancellation
+
+### Requirement: Durable engineering attempt history
+
+Every WorkOrder dispatch SHALL create an immutable engineering-attempt record before the
+runtime call. State changes, budget, failure code, accepted bundle and benchmark identity
+SHALL be append-only records. The operator API and UI SHALL expose the retained state without
+receiving the runtime service credential. Provider exception text SHALL NOT be retained.
+
+#### Scenario: Contract validation fails
+
+- **WHEN** Ouroboros returns a strategy that fails the frozen acceptance cases
+- **THEN** the engineering attempt ends as FAILED with a bounded reason code and remains auditable
+
+#### Scenario: Runtime is protocol-only
+
+- **WHEN** the worker probes a configured runtime whose execution profile is not admitted
+- **THEN** the UI reports it as connected but unavailable without exposing credentials

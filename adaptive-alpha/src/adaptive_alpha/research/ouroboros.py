@@ -42,6 +42,19 @@ class OuroborosEngineer:
     def check_ready(self) -> None:
         if not self.provision_workspaces:
             return
+        state = self.status()
+        if state["ready"] is not True or state["execution_enabled"] is not True:
+            raise ValueError("OUROBOROS_EXECUTION_NOT_READY")
+
+    def status(self) -> dict[str, Any]:
+        """Return a bounded, credential-free view of the isolated runtime."""
+        if not self.provision_workspaces:
+            return {
+                "configured": True,
+                "ready": False,
+                "execution_enabled": False,
+                "reason": "LEGACY_RUNTIME_UNVERIFIED",
+            }
         with (
             nullcontext(self.client)
             if self.client
@@ -50,8 +63,16 @@ class OuroborosEngineer:
             state = bounded_json(
                 client, "GET", self.url + "/integration/status", headers=self.headers
             )
-        if state.get("ready") is not True or state.get("execution_enabled") is not True:
-            raise ValueError("OUROBOROS_EXECUTION_NOT_READY")
+        version = state.get("upstream_version")
+        return {
+            "configured": True,
+            "ready": state.get("ready") is True,
+            "execution_enabled": state.get("execution_enabled") is True,
+            "upstream_version": version
+            if isinstance(version, str) and 0 < len(version) <= 100
+            else "unknown",
+            "workspace_isolation": state.get("workspace_isolation") is True,
+        }
 
     def generate(self, context: dict[str, Any], timeout: float) -> Candidate:
         """Legacy combined-research adapter, retained for compatibility only."""

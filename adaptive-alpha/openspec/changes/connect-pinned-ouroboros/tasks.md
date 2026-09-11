@@ -12,7 +12,8 @@
 - [ ] Configure the chosen OpenAI model and a secret-backed credential path in a separately admitted execution profile.
 - [ ] Accept the executing Ouroboros and native tools under gVisor with inherited limits.
 - [ ] Run an actual frozen WorkOrder through the model and collect versioned strategy/skill/subagent/harness artifacts.
-- [ ] Connect durable engineering attempts, budgets, cancellation, audit and operator UI.
+- [x] Retain append-only engineering attempts, budgets, terminal state, audit and operator UI.
+- [ ] Add a separately leased engineering queue with crash-safe task resumption and explicit cancellation propagation.
 - [ ] Benchmark and admit reusable tools and self-improvement against independent engineering tasks.
 
 These pending tasks retain the distinction between a running source server and a completed self-creating engineering loop.

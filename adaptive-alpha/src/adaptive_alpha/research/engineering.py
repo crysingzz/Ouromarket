@@ -21,6 +21,7 @@ Hash = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 Capability = Literal[
     "read_public_data", "compute_signal", "describe_research_tool", "run_contract_tests"
 ]
+EngineeringStatus = Literal["RUNNING", "VALIDATING", "SUCCEEDED", "FAILED", "CANCELLED"]
 CAPABILITIES: tuple[Capability, ...] = (
     "read_public_data",
     "compute_signal",
@@ -184,6 +185,91 @@ class EngineeringRegistry:
 
     def list_benchmarks(self) -> list[dict[str, Any]]:
         return self._list("artifact-benchmark")
+
+    def create_attempt(
+        self, work_order_id: str, campaign_id: str, research_attempt_id: str, actor: str
+    ) -> dict[str, Any]:
+        identity = "engineering-run-" + new_id()
+        with self.store.transaction() as conn:
+            work = WorkOrder.model_validate(self.store.get(conn, work_order_id, "work-order"))
+            record = {
+                "id": identity,
+                "work_order_id": work.id,
+                "campaign_id": campaign_id,
+                "research_attempt_id": research_attempt_id,
+                "status": "QUEUED",
+                "stage": "dispatch",
+                "budget": {"tokens": work.token_budget, "seconds": work.max_seconds},
+                "created_at": now(),
+            }
+            self.store.append(conn, "engineering-attempt", record, identity)
+            self.store.audit(
+                conn,
+                "engineering.attempt_queued",
+                actor,
+                {"id": identity, "work_order_id": work.id},
+            )
+        return record
+
+    def transition_attempt(
+        self,
+        attempt_id: str,
+        status: EngineeringStatus,
+        stage: str,
+        actor: str,
+        *,
+        reason: str | None = None,
+        bundle_id: str | None = None,
+        benchmark_id: str | None = None,
+    ) -> dict[str, Any]:
+        allowed = {
+            "QUEUED": {"RUNNING", "FAILED", "CANCELLED"},
+            "RUNNING": {"VALIDATING", "FAILED", "CANCELLED"},
+            "VALIDATING": {"SUCCEEDED", "FAILED", "CANCELLED"},
+        }
+        if not stage or len(stage) > 80:
+            raise ValueError("ENGINEERING_STAGE_INVALID")
+        with self.store.transaction() as conn:
+            self.store.get(conn, attempt_id, "engineering-attempt")
+            events = self.store.related(
+                conn, "engineering-attempt-event", "engineering_attempt_id", attempt_id
+            )
+            current = events[-1]["status"] if events else "QUEUED"
+            if status not in allowed.get(current, set()):
+                raise ValueError("ENGINEERING_ATTEMPT_TRANSITION_INVALID")
+            event = {
+                "id": new_id(),
+                "engineering_attempt_id": attempt_id,
+                "status": status,
+                "stage": stage,
+                "reason": reason,
+                "bundle_id": bundle_id,
+                "benchmark_id": benchmark_id,
+                "at": now(),
+            }
+            self.store.append(conn, "engineering-attempt-event", event, event["id"])
+            self.store.audit(
+                conn,
+                "engineering.attempt_transitioned",
+                actor,
+                {"id": attempt_id, "status": status, "stage": stage},
+            )
+        return event
+
+    def list_attempts(self) -> list[dict[str, Any]]:
+        with self.store.transaction() as conn:
+            attempts = self.store.list_records(conn, "engineering-attempt")
+            result = []
+            for attempt in attempts:
+                history = self.store.related(
+                    conn,
+                    "engineering-attempt-event",
+                    "engineering_attempt_id",
+                    attempt["id"],
+                )
+                latest = history[-1] if history else {}
+                result.append({**attempt, **latest, "id": attempt["id"], "events": history})
+            return result
 
     def _list(self, kind: str) -> list[dict[str, Any]]:
         with self.store.transaction() as conn:

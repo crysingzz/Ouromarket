@@ -334,3 +334,29 @@ def test_acceptance_case_forbids_nonfinite_and_unknown_fields():
         SignalCase(history=[float("nan")], expected=0)
     with pytest.raises(ValidationError):
         ImplementationBundle(work_order_id="w", spec_hash="a" * 64, source=SOURCE, passed=True)
+
+
+def test_engineering_attempts_are_append_only_and_transition_once(registry):
+    work = registry.create_work_order(spec(), "research", token_budget=1234, max_seconds=45)
+    attempt = registry.create_attempt(work.id, "campaign", "research-attempt", "worker")
+    assert attempt["status"] == "QUEUED" and attempt["budget"] == {
+        "tokens": 1234,
+        "seconds": 45,
+    }
+    registry.transition_attempt(attempt["id"], "RUNNING", "ouroboros", "worker")
+    registry.transition_attempt(attempt["id"], "VALIDATING", "contract", "worker")
+    completed = registry.transition_attempt(
+        attempt["id"],
+        "SUCCEEDED",
+        "complete",
+        "worker",
+        bundle_id="bundle",
+        benchmark_id="benchmark",
+    )
+    retained = registry.list_attempts()[0]
+    assert completed["bundle_id"] == "bundle"
+    assert retained["status"] == "SUCCEEDED" and len(retained["events"]) == 3
+    with pytest.raises(ValueError, match="TRANSITION_INVALID"):
+        registry.transition_attempt(attempt["id"], "FAILED", "late", "worker")
+    with pytest.raises(ValueError, match="STAGE_INVALID"):
+        registry.transition_attempt(attempt["id"], "FAILED", "", "worker")

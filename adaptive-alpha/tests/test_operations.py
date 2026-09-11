@@ -122,7 +122,11 @@ def test_engineering_http_uses_retained_contract_not_supplied_score(client):
     ).json()
     assert review["status"] == "REVIEWED_PROPOSAL" and review["capital_eligible"] is False
     view = client.get("/api/engineering").json()
-    assert len(view["artifacts"]) == 2 and view["arbitrary_execution_enabled"] is False
+    assert (
+        len(view["artifacts"]) == 2
+        and view["attempts"] == []
+        and view["arbitrary_execution_enabled"] is False
+    )
 
 
 @pytest.mark.parametrize("mode", ["valid", "wrong_dataset", "failed_contract"])
@@ -175,11 +179,19 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
             ValueError, match="INPUT_MISMATCH" if mode == "wrong_dataset" else "CONTRACT_FAILED"
         ):
             workflow.implement_research(*args)
+        if mode == "failed_contract":
+            attempt = EngineeringRegistry(store).list_attempts()[0]
+            assert attempt["status"] == "FAILED"
+            assert attempt["reason"] == "IMPLEMENTATION_CONTRACT_FAILED"
         return
     result, usage, artifact = workflow.implement_research(*args)
     assert result.hypothesis == research.hypothesis and result.source == SOURCE
     assert usage["implementation_provider"] == "ouroboros" and check.call_count == 3
-    assert EngineeringRegistry(store).get_work_order(artifact["work_order_id"]).spec == research
+    registry = EngineeringRegistry(store)
+    assert registry.get_work_order(artifact["work_order_id"]).spec == research
+    attempt = registry.list_attempts()[0]
+    assert artifact["engineering_attempt_id"] == attempt["id"]
+    assert attempt["status"] == "SUCCEEDED" and attempt["benchmark_id"]
 
 
 @pytest.mark.parametrize("mode", ["normal", "stale", "crash"])

@@ -130,6 +130,7 @@ def register_operations(
             "artifacts": engineering.list_artifacts(),
             "work_orders": engineering.list_work_orders(),
             "benchmarks": engineering.list_benchmarks(),
+            "attempts": engineering.list_attempts(),
             "arbitrary_execution_enabled": False,
         }
 
