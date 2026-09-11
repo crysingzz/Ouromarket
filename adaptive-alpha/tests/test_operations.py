@@ -129,7 +129,7 @@ def test_engineering_http_uses_retained_contract_not_supplied_score(client):
     )
 
 
-@pytest.mark.parametrize("mode", ["valid", "wrong_dataset", "failed_contract"])
+@pytest.mark.parametrize("mode", ["valid", "wrong_dataset", "failed_contract", "cancelled"])
 def test_researcher_frozen_spec_drives_ouroboros_implementation(
     client, settings, monkeypatch, mode
 ):
@@ -153,7 +153,7 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
         )
         return research, {"reserved": budget, "input_tokens": 50}
 
-    def implement(self, order, timeout):
+    def implement(self, order, timeout, **kwargs):
         assert order.spec == research and timeout == 100
         return ImplementationBundle(
             work_order_id=order.id,
@@ -163,7 +163,9 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
 
     monkeypatch.setattr(workflow.OpenAIProvider, "structured", produce)
     monkeypatch.setattr(workflow.OuroborosEngineer, "implement", implement)
-    check = Mock()
+    check = Mock(
+        side_effect=[None, ValueError("CAMPAIGN_OWNERSHIP_LOST")] if mode == "cancelled" else None
+    )
     args = (
         store,
         settings,
@@ -176,13 +178,24 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
     )
     if mode != "valid":
         with pytest.raises(
-            ValueError, match="INPUT_MISMATCH" if mode == "wrong_dataset" else "CONTRACT_FAILED"
+            ValueError,
+            match=(
+                "INPUT_MISMATCH"
+                if mode == "wrong_dataset"
+                else "OWNERSHIP_LOST"
+                if mode == "cancelled"
+                else "CONTRACT_FAILED"
+            ),
         ):
             workflow.implement_research(*args)
-        if mode == "failed_contract":
+        if mode in {"failed_contract", "cancelled"}:
             attempt = EngineeringRegistry(store).list_attempts()[0]
-            assert attempt["status"] == "FAILED"
-            assert attempt["reason"] == "IMPLEMENTATION_CONTRACT_FAILED"
+            assert attempt["status"] == ("CANCELLED" if mode == "cancelled" else "FAILED")
+            assert attempt["reason"] == (
+                "CAMPAIGN_OWNERSHIP_LOST"
+                if mode == "cancelled"
+                else "IMPLEMENTATION_CONTRACT_FAILED"
+            )
         return
     result, usage, artifact = workflow.implement_research(*args)
     assert result.hypothesis == research.hypothesis and result.source == SOURCE

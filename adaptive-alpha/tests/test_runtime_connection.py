@@ -169,6 +169,37 @@ def test_retry_resumes_only_the_bound_runtime_task(collision):
             assert adapter.implement(work, 5) == bundle
 
 
+def test_campaign_checkpoint_cancels_running_upstream_task():
+    work = work_order()
+    cancelled = []
+
+    def handler(request):
+        if request.url.path == "/integration/workspaces":
+            return httpx.Response(
+                201,
+                json={
+                    "workspace_root": "/workspaces/" + work.id,
+                    "work_order_id": work.id,
+                    "spec_hash": work.spec_hash,
+                },
+            )
+        if request.url.path == "/api/tasks":
+            return httpx.Response(201, json={"task_id": runtime_task_id(work.id)})
+        if request.url.path.endswith("/cancel"):
+            cancelled.append(request.url.path)
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"status": "running"})
+
+    ownership = Mock(side_effect=[None, ValueError("CAMPAIGN_OWNERSHIP_LOST")])
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        adapter = OuroborosEngineer(
+            "http://runtime", "/workspaces", client, service_token=TOKEN, provision_workspaces=True
+        )
+        with pytest.raises(ValueError, match="OWNERSHIP_LOST"):
+            adapter.implement(work, 5, checkpoint=ownership)
+    assert ownership.call_count == 2 and cancelled
+
+
 @pytest.mark.parametrize(
     "reply",
     [

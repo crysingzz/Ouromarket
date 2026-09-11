@@ -8,6 +8,7 @@ import json
 import math
 import re
 import time
+from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from typing import Any
 from urllib.parse import quote
@@ -91,7 +92,13 @@ class OuroborosEngineer:
         )
         return Candidate.model_validate_json(self._run(prompt, timeout))
 
-    def implement(self, work_order: WorkOrder, timeout: float) -> ImplementationBundle:
+    def implement(
+        self,
+        work_order: WorkOrder,
+        timeout: float,
+        *,
+        checkpoint: Callable[[], None] | None = None,
+    ) -> ImplementationBundle:
         """Implement fixed economics; generated support tools remain inert proposals."""
         work = WorkOrder.model_validate(work_order.model_dump(mode="json"))
         if work.spec_hash != digest(work.spec.model_dump(mode="json")):
@@ -114,13 +121,25 @@ class OuroborosEngineer:
             + work.model_dump_json()
         )
         result = ImplementationBundle.model_validate_json(
-            self._run(prompt, min(timeout, work.max_seconds), work=work)
+            self._run(
+                prompt,
+                min(timeout, work.max_seconds),
+                work=work,
+                checkpoint=checkpoint,
+            )
         )
         if result.work_order_id != work.id or result.spec_hash != work.spec_hash:
             raise ValueError("OUROBOROS_WORK_ORDER_MISMATCH")
         return result
 
-    def _run(self, prompt: str, timeout: float, *, work: WorkOrder | None = None) -> str:
+    def _run(
+        self,
+        prompt: str,
+        timeout: float,
+        *,
+        work: WorkOrder | None = None,
+        checkpoint: Callable[[], None] | None = None,
+    ) -> str:
         if not math.isfinite(timeout) or not 0 < timeout <= 1800:
             raise ValueError("OUROBOROS_TIMEOUT_BOUND")
         deadline = time.monotonic() + timeout
@@ -191,6 +210,8 @@ class OuroborosEngineer:
             path = self.url + "/api/tasks/" + quote(task_id, safe="")
             try:
                 while time.monotonic() < deadline:
+                    if checkpoint:
+                        checkpoint()
                     result = resumed or bounded_json(client, "GET", path, headers=self.headers)
                     resumed = None
                     if result.get("status") in {"completed", "done", "succeeded"}:

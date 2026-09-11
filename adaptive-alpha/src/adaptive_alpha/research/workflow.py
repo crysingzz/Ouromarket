@@ -88,7 +88,7 @@ def implement_research(
     try:
         checkpoint()
         registry.transition_attempt(engineering_attempt["id"], "RUNNING", "ouroboros", "worker")
-        bundle = engineer.implement(work, timeout)
+        bundle = engineer.implement(work, timeout, checkpoint=checkpoint)
         checkpoint()
         stage = "contract-validation"
         registry.transition_attempt(engineering_attempt["id"], "VALIDATING", stage, "worker")
