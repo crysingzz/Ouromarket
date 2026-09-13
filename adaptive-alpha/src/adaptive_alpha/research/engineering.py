@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
+from sqlalchemy.engine import Connection
 
 from adaptive_alpha.domain import Contract, canonical, digest, new_id, now
 from adaptive_alpha.research.program import GRAMMAR, Program
@@ -189,6 +190,61 @@ class EngineeringRegistry:
 
     def list_benchmarks(self) -> list[dict[str, Any]]:
         return self._list("artifact-benchmark")
+
+    def completed_result(self, conn: Connection, research_attempt_id: str) -> dict[str, Any]:
+        links = self.store.related(conn, "engineering-link", "attempt_id", research_attempt_id)
+        attempts = self.store.related(
+            conn, "engineering-attempt", "research_attempt_id", research_attempt_id
+        )
+        if len(links) != 1 or len(attempts) != 1:
+            raise ValueError("ENGINEERING_RECOVERY_BINDING_INVALID")
+        link, attempt = links[0], attempts[0]
+        if link.get("work_order_id") != attempt.get("work_order_id") or link.get(
+            "campaign_id"
+        ) != attempt.get("campaign_id"):
+            raise ValueError("ENGINEERING_RECOVERY_BINDING_INVALID")
+        events = self.store.related(
+            conn,
+            "engineering-attempt-event",
+            "engineering_attempt_id",
+            attempt["id"],
+        )
+        latest = events[-1] if events else attempt
+        if latest.get("status") != "SUCCEEDED":
+            raise ValueError("ENGINEERING_RESULT_NOT_READY")
+        bundle_id, benchmark_id = latest.get("bundle_id"), latest.get("benchmark_id")
+        if not isinstance(bundle_id, str) or not isinstance(benchmark_id, str):
+            raise ValueError("ENGINEERING_RESULT_INCOMPLETE")
+        work = WorkOrder.model_validate(
+            self.store.get(conn, attempt["work_order_id"], "work-order")
+        )
+        bundle = self.store.get(conn, bundle_id, "engineering-bundle")
+        benchmark = self.store.get(conn, benchmark_id, "artifact-benchmark")
+        if (
+            work.runtime_digest != runtime_digest()
+            or work.spec_hash != digest(work.spec.model_dump(mode="json"))
+            or bundle.get("work_order_id") != work.id
+            or bundle.get("spec_hash") != work.spec_hash
+            or benchmark.get("bundle_id") != bundle_id
+            or benchmark.get("work_order_id") != work.id
+            or benchmark.get("spec_hash") != work.spec_hash
+            or benchmark.get("runtime_digest") != work.runtime_digest
+            or benchmark.get("input_digest") != work.input_digest
+            or benchmark.get("artifact_ids") != bundle.get("artifact_ids")
+            or benchmark.get("producer") != "server"
+            or benchmark.get("passed") is not True
+        ):
+            raise ValueError("ENGINEERING_RECOVERY_EVIDENCE_INVALID")
+        usage = link.get("research_usage")
+        if not isinstance(usage, dict):
+            raise ValueError("ENGINEERING_RECOVERY_USAGE_INVALID")
+        return {
+            "work": work,
+            "bundle": bundle,
+            "benchmark": benchmark,
+            "engineering_attempt": attempt,
+            "research_usage": usage,
+        }
 
     def create_attempt(
         self, work_order_id: str, campaign_id: str, research_attempt_id: str, actor: str

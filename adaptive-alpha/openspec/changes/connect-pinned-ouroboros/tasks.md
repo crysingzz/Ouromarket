@@ -16,6 +16,7 @@
 - [x] Bind one deterministic upstream task identity to each WorkOrder and safely resume an already-created matching task.
 - [x] Propagate campaign cancellation and lease loss through polling to the upstream task cancel endpoint.
 - [x] Add a separately leased engineering queue with crash-safe task resumption and explicit cancellation propagation.
+- [x] Reconstruct an expired campaign from verified retained engineering and candidate results without repeating model work.
 - [ ] Benchmark and admit reusable tools and self-improvement against independent engineering tasks.
 
 These pending tasks retain the distinction between a running source server and a completed self-creating engineering loop.

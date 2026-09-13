@@ -83,3 +83,27 @@ a worker restart. Queue completion and the terminal attempt event SHALL be commi
 
 - **WHEN** a campaign or operator requests cancellation while the engineering lease is active
 - **THEN** the worker cannot commit success and propagates cancellation to the bound runtime task
+
+### Requirement: Crash-safe campaign reconstruction
+
+An expired research campaign SHALL resume only from retained generations whose result is terminal
+and from at most one open generation whose engineering attempt is SUCCEEDED. The resumed generation
+SHALL reuse the original candidate implementation, WorkOrder, accepted bundle, server benchmark and
+recorded model usage without another researcher or Ouroboros call. Every retained identity, campaign
+binding, spec hash, runtime digest, input digest and trusted benchmark producer SHALL match before
+reconstruction. Ambiguous, incomplete, duplicated or conflicting state SHALL fail closed.
+
+#### Scenario: Campaign worker stops after engineering completion
+
+- **WHEN** its lease expires after a verified bundle and benchmark were retained but before candidate evaluation completed
+- **THEN** another worker reconstructs the candidate and evaluates it once without another model or runtime call
+
+#### Scenario: Recovery state is ambiguous
+
+- **WHEN** an open generation has no verified engineering result or any retained identity or digest conflicts
+- **THEN** the campaign becomes INTERRUPTED and no external call is replayed automatically
+
+#### Scenario: All generations were already evaluated
+
+- **WHEN** the campaign lease expires after every generation has a supported terminal result but before finalization
+- **THEN** another worker rebuilds diagnostics and finalizes the campaign without generating another candidate

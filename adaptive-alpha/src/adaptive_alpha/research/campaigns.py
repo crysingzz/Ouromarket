@@ -8,11 +8,13 @@ from typing import Any
 import httpx
 import numpy as np
 from sqlalchemy import select
+from sqlalchemy.engine import Connection
 
 from adaptive_alpha.config import Settings
 from adaptive_alpha.domain import digest, new_id, now
 from adaptive_alpha.research.backtest import backtest
 from adaptive_alpha.research.contracts import CampaignRequest, Candidate, DatasetImport
+from adaptive_alpha.research.engineering import EngineeringRegistry
 from adaptive_alpha.research.engineering_queue import EngineeringQueue
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.literature import search_sources
@@ -22,7 +24,7 @@ from adaptive_alpha.research.reproduction import provenance
 from adaptive_alpha.research.roles import CriticAgent, LiteratureAgent, MarketAgent, NoveltyAgent
 from adaptive_alpha.research.statistics import daily_sharpe, deflated_sharpe, pbo
 from adaptive_alpha.research.walk_forward import rolling_selection
-from adaptive_alpha.research.workflow import implement_research
+from adaptive_alpha.research.workflow import implement_research, resume_research
 from adaptive_alpha.store import Store, states
 
 
@@ -85,6 +87,79 @@ class Campaigns:
         EngineeringQueue(self.store).cancel_campaign(identity, "operator")
         return result
 
+    def _recovery_attempt(self, conn: Connection, campaign_id: str) -> str | None:
+        attempts = self.store.related(conn, "autonomous-attempt", "campaign_id", campaign_id)
+        if not attempts:
+            return None
+        campaign = self.store.get(conn, campaign_id, "campaign")
+        state = self.store.state(conn, "campaign:" + campaign_id)
+        candidates = self.store.related(conn, "candidate", "campaign_id", campaign_id)
+        results = self.store.related(conn, "candidate-result", "campaign_id", campaign_id)
+        if any(
+            result.get("status") not in {"PASS", "FAIL", "INVALID", "DUPLICATE"}
+            for result in results
+        ):
+            return None
+        try:
+            attempts_by_id = {attempt["id"]: attempt for attempt in attempts}
+            candidates_by_attempt = {candidate["attempt_id"]: candidate for candidate in candidates}
+            generations = [attempt["generation"] for attempt in attempts]
+        except (KeyError, TypeError):
+            return None
+        if (
+            len(attempts_by_id) != len(attempts)
+            or len(candidates_by_attempt) != len(candidates)
+            or state.get("attempts") != len(attempts)
+            or any(type(generation) is not int for generation in generations)
+            or sorted(generations) != list(range(len(generations)))
+            or len(set(generations)) != len(generations)
+            or len(attempts) > campaign["generations"]
+        ):
+            return None
+        attempt_ids = set(attempts_by_id)
+        if any(
+            attempt_id not in attempt_ids
+            or candidate.get("campaign_id") != campaign_id
+            or candidate.get("generation") != attempts_by_id[attempt_id].get("generation")
+            or candidate.get("source_hash") != digest(candidate.get("source"))
+            or candidate.get("generation_path") != attempts_by_id[attempt_id].get("generation_path")
+            for attempt_id, candidate in candidates_by_attempt.items()
+        ):
+            return None
+        result_attempt_ids = [result.get("attempt_id") for result in results]
+        if any(identity not in attempt_ids for identity in result_attempt_ids) or len(
+            result_attempt_ids
+        ) != len(set(result_attempt_ids)):
+            return None
+        if any(
+            result.get("id") != candidates_by_attempt.get(result.get("attempt_id"), {}).get("id")
+            for result in results
+        ):
+            return None
+        closed = {result.get("attempt_id") for result in results}
+        open_attempts = [attempt for attempt in attempts if attempt["id"] not in closed]
+        evolution_attempts = self.store.related(
+            conn, "agent-evolution-attempt", "campaign_id", campaign_id
+        )
+        evolution_results = self.store.related(
+            conn, "agent-evolution-result", "campaign_id", campaign_id
+        )
+        if evolution_attempts or evolution_results:
+            return None
+        if not open_attempts:
+            return ""
+        if len(open_attempts) != 1:
+            return None
+        try:
+            completed = EngineeringRegistry(self.store).completed_result(
+                conn, open_attempts[0]["id"]
+            )
+        except (KeyError, ValueError):
+            return None
+        if completed["work"].spec.dataset_id != campaign["dataset_id"]:
+            return None
+        return str(open_attempts[0]["id"])
+
     def claim(self) -> tuple[dict[str, Any], str] | None:
         with self.store.transaction() as conn:
             entries = conn.execute(
@@ -96,37 +171,55 @@ class Campaigns:
                 state = json.loads(payload)
                 campaign_id = identity.removeprefix("campaign:")
                 if state["status"] == "RUNNING" and state["lease_until"] < time.time():
-                    state["status"] = "INTERRUPTED"
-                    self.store.set_state(conn, identity, state)
+                    recovery_attempt = self._recovery_attempt(conn, campaign_id)
+                    state["status"] = "QUEUED" if recovery_attempt is not None else "INTERRUPTED"
+                    state["resume_attempt_id"] = recovery_attempt or None
                     self.store.append(
                         conn,
                         "campaign-event",
                         {
                             "campaign_id": campaign_id,
-                            "status": "INTERRUPTED",
+                            "status": "RECOVERING"
+                            if recovery_attempt is not None
+                            else "INTERRUPTED",
                             "at": now(),
-                            "reason": "LEASE_EXPIRED; provider outcome may be unknown",
+                            "reason": "RETAINED_ENGINEERING_RESULT"
+                            if recovery_attempt
+                            else "CLOSED_GENERATIONS"
+                            if recovery_attempt == ""
+                            else "LEASE_EXPIRED; provider outcome may be unknown",
                         },
                     )
+                    if recovery_attempt is not None:
+                        self.store.audit(
+                            conn,
+                            "campaign.recovery_claimed",
+                            "worker",
+                            {"id": campaign_id, "attempt_id": recovery_attempt or None},
+                        )
+                        state["reason"] = None
+                    else:
+                        state["reason"] = "WORKER_LEASE_EXPIRED"
                     outcomes = self.store.related(
                         conn, "candidate-result", "campaign_id", campaign_id
                     )
                     closed = {r.get("attempt_id") for r in outcomes}
-                    for attempt in self.store.related(
-                        conn, "autonomous-attempt", "campaign_id", campaign_id
-                    ):
-                        if attempt["id"] not in closed:
-                            self.store.append(
-                                conn,
-                                "candidate-result",
-                                {
-                                    "campaign_id": campaign_id,
-                                    "attempt_id": attempt["id"],
-                                    "status": "INTERRUPTED",
-                                    "reason": "WORKER_LEASE_EXPIRED",
-                                    "at": now(),
-                                },
-                            )
+                    if recovery_attempt is None:
+                        for attempt in self.store.related(
+                            conn, "autonomous-attempt", "campaign_id", campaign_id
+                        ):
+                            if attempt["id"] not in closed:
+                                self.store.append(
+                                    conn,
+                                    "candidate-result",
+                                    {
+                                        "campaign_id": campaign_id,
+                                        "attempt_id": attempt["id"],
+                                        "status": "INTERRUPTED",
+                                        "reason": "WORKER_LEASE_EXPIRED",
+                                        "at": now(),
+                                    },
+                                )
                     evolution_closed = {
                         r.get("attempt_id")
                         for r in self.store.related(
@@ -148,7 +241,11 @@ class Campaigns:
                                     "at": now(),
                                 },
                             )
-                    self.store.audit(conn, "campaign.interrupted", "worker", {"id": campaign_id})
+                    if recovery_attempt is None:
+                        self.store.audit(
+                            conn, "campaign.interrupted", "worker", {"id": campaign_id}
+                        )
+                    self.store.set_state(conn, identity, state)
                 if state["status"] != "QUEUED":
                     continue
                 request = self.store.get(conn, campaign_id, "campaign")
@@ -199,6 +296,7 @@ class Campaigns:
         parent_id: str | None = None
         seen_sources: set[str] = set()
         sources: dict[str, str] = {}
+        resume_attempt_id: str | None = None
         generation_path = (
             "controlled-fixture" if generate is not None else "research-spec-ouroboros-v1"
         )
@@ -210,6 +308,7 @@ class Campaigns:
                 raise ValueError("RETIRED_GENERATION_PATH")
             with self.store.transaction() as conn:
                 dataset_record = self.store.get(conn, campaign["dataset_id"], "dataset")
+                resume_attempt_id = self.store.state(conn, state_id).get("resume_attempt_id")
             dataset = DatasetImport.model_validate(dataset_record["data"])
             if search:
                 evidence = search(campaign["query"])
@@ -233,7 +332,14 @@ class Campaigns:
                 raise ValueError("NO_RESEARCH_EVIDENCE")
             with self.store.transaction() as conn:
                 for item in evidence:
-                    self.store.append(conn, "evidence", item.model_dump(mode="json"), item.id)
+                    payload = item.model_dump(mode="json")
+                    try:
+                        retained = self.store.get(conn, item.id, "evidence")
+                    except KeyError:
+                        self.store.append(conn, "evidence", payload, item.id)
+                    else:
+                        if retained != payload:
+                            raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
                 self.store.audit(
                     conn,
                     "literature.searched",
@@ -250,30 +356,82 @@ class Campaigns:
             allowance = campaign["token_budget"] // (
                 campaign["generations"] + int(campaign.get("propose_agent_revision", False))
             )
+            with self.store.transaction() as conn:
+                retained_attempts = self.store.related(
+                    conn, "autonomous-attempt", "campaign_id", identity
+                )
+                retained_candidates = self.store.related(conn, "candidate", "campaign_id", identity)
+                retained_results = self.store.related(
+                    conn, "candidate-result", "campaign_id", identity
+                )
+            attempts_by_id = {attempt["id"]: attempt for attempt in retained_attempts}
+            candidates_by_attempt = {
+                candidate["attempt_id"]: candidate for candidate in retained_candidates
+            }
+            results_by_id = {
+                result["id"]: result for result in retained_results if result.get("id")
+            }
+            completed_generations: set[int] = set()
+            for retained in sorted(retained_candidates, key=lambda item: item["generation"]):
+                parent_id = retained["id"]
+                sources[parent_id] = retained["source"]
+                result = results_by_id.get(parent_id)
+                if result is None:
+                    continue
+                structural_hash = retained.get("novelty_diagnostic", {}).get("program_ast_hash")
+                if structural_hash:
+                    seen_sources.add(structural_hash)
+                completed_generations.add(int(retained["generation"]))
+                if "public" in result:
+                    variants.append(result)
+                    previous = {
+                        "source": retained["source"],
+                        "hypothesis": retained["hypothesis"],
+                        "public_gates": result["public"]["gates"],
+                        "public_oos": result["public"]["public_oos"],
+                        "critique": CriticAgent().analyze(result["public"]),
+                        "instruction": "Propose a falsifiable improvement or a distinct mechanism; do not invent evidence.",
+                    }
+                else:
+                    previous = {
+                        "source": retained["source"],
+                        "validation_error": result.get("reason", "INVALID_PROGRAM"),
+                        "instruction": "Fix the program or propose a distinct falsifiable mechanism.",
+                    }
             for generation in range(campaign["generations"]):
+                if generation in completed_generations:
+                    continue
                 checkpoint()
-                active_attempt = new_id()
-                with self.store.transaction() as conn:
-                    state = self.store.state(conn, state_id)
-                    state["attempts"] += 1
-                    state["tokens_charged"] += allowance
-                    self.store.set_state(conn, state_id, state)
-                    self.store.append(
-                        conn,
-                        "autonomous-attempt",
-                        {
-                            "id": active_attempt,
-                            "campaign_id": identity,
-                            "generation": generation,
-                            "reserved_tokens": allowance,
-                            "started_at": now(),
-                            "generation_path": generation_path,
-                        },
-                        active_attempt,
-                    )
+                resuming = bool(
+                    resume_attempt_id
+                    and attempts_by_id.get(resume_attempt_id, {}).get("generation") == generation
+                )
+                if resuming and resume_attempt_id:
+                    attempt_id = resume_attempt_id
+                else:
+                    attempt_id = new_id()
+                    with self.store.transaction() as conn:
+                        state = self.store.state(conn, state_id)
+                        state["attempts"] += 1
+                        state["tokens_charged"] += allowance
+                        self.store.set_state(conn, state_id, state)
+                        self.store.append(
+                            conn,
+                            "autonomous-attempt",
+                            {
+                                "id": attempt_id,
+                                "campaign_id": identity,
+                                "generation": generation,
+                                "reserved_tokens": allowance,
+                                "started_at": now(),
+                                "generation_path": generation_path,
+                            },
+                            attempt_id,
+                        )
+                active_attempt = attempt_id
                 context = {
                     "campaign_id": identity,
-                    "attempt_id": active_attempt,
+                    "attempt_id": attempt_id,
                     "objective": campaign["objective"],
                     "department": campaign.get("department", "replication"),
                     "market": market,
@@ -294,26 +452,32 @@ class Campaigns:
                     }
                 engineering: dict[str, Any] = {}
                 if generate is None:
-                    candidate, usage, engineering = implement_research(
-                        self.store,
-                        self.settings,
-                        campaign["model"],
-                        context,
-                        campaign["dataset_id"],
-                        allowance,
-                        min(120, deadline - time.monotonic()),
-                        checkpoint,
-                    )
+                    if resuming:
+                        candidate, usage, engineering = resume_research(self.store, attempt_id)
+                    else:
+                        candidate, usage, engineering = implement_research(
+                            self.store,
+                            self.settings,
+                            campaign["model"],
+                            context,
+                            campaign["dataset_id"],
+                            allowance,
+                            min(120, deadline - time.monotonic()),
+                            checkpoint,
+                        )
                 else:
+                    if resuming:
+                        raise ValueError("CONTROLLED_FIXTURE_RECOVERY_FORBIDDEN")
                     # Trusted in-process fixtures only; this callable is never
                     # accepted from an API request or used by the worker entrypoint.
                     candidate, usage = generate(campaign["model"], context, allowance)
                 checkpoint()
-                candidate_id = new_id()
-                artifact = {
+                retained_artifact = candidates_by_attempt.get(attempt_id)
+                candidate_id = retained_artifact["id"] if retained_artifact else new_id()
+                artifact: dict[str, Any] = {
                     "id": candidate_id,
                     "campaign_id": identity,
-                    "attempt_id": active_attempt,
+                    "attempt_id": attempt_id,
                     "generation": generation,
                     "parent_id": parent_id,
                     "parent_ids": list(
@@ -332,25 +496,49 @@ class Campaigns:
                     "provenance": provenance(),
                     "created_at": now(),
                 }
-                with self.store.transaction() as conn:
-                    prior = self.store.list_records(conn, "candidate", 1000)
-                    artifact["novelty_diagnostic"] = NoveltyAgent().compare(candidate, prior)
-                    self.store.append(conn, "candidate", artifact, candidate_id)
-                    StrategyLifecycle(self.store).register_in_transaction(
-                        conn, candidate_id, "worker"
+                if retained_artifact:
+                    retained_candidate = Candidate.model_validate(
+                        {field: retained_artifact[field] for field in Candidate.model_fields}
                     )
-                    for evidence_id in set(candidate.evidence_ids) & evidence_ids:
-                        self.store.append(
-                            conn,
-                            "knowledge-edge",
-                            {
-                                "from": evidence_id,
-                                "to": candidate_id,
-                                "relation": "cited_by",
-                                "asserted_by": "model",
-                                "verified": False,
-                            },
+                    if (
+                        retained_candidate != candidate
+                        or retained_artifact.get("generation") != generation
+                        or retained_artifact.get("dataset_id") != campaign["dataset_id"]
+                        or retained_artifact.get("work_order_id")
+                        != engineering.get("work_order_id")
+                        or any(
+                            retained_artifact.get(key) != engineering.get(key)
+                            for key in (
+                                "spec_hash",
+                                "engineering_bundle_id",
+                                "engineering_artifact_ids",
+                                "implementation_benchmark_id",
+                                "engineering_attempt_id",
+                            )
                         )
+                    ):
+                        raise ValueError("CAMPAIGN_RECOVERY_CANDIDATE_MISMATCH")
+                    artifact = retained_artifact
+                else:
+                    with self.store.transaction() as conn:
+                        prior = self.store.list_records(conn, "candidate", 1000)
+                        artifact["novelty_diagnostic"] = NoveltyAgent().compare(candidate, prior)
+                        self.store.append(conn, "candidate", artifact, candidate_id)
+                        StrategyLifecycle(self.store).register_in_transaction(
+                            conn, candidate_id, "worker"
+                        )
+                        for evidence_id in set(candidate.evidence_ids) & evidence_ids:
+                            self.store.append(
+                                conn,
+                                "knowledge-edge",
+                                {
+                                    "from": evidence_id,
+                                    "to": candidate_id,
+                                    "relation": "cited_by",
+                                    "asserted_by": "model",
+                                    "verified": False,
+                                },
+                            )
                 parent_id = candidate_id
                 sources[candidate_id] = candidate.source
                 try:
@@ -376,7 +564,7 @@ class Campaigns:
                             {
                                 "id": candidate_id,
                                 "campaign_id": identity,
-                                "attempt_id": active_attempt,
+                                "attempt_id": attempt_id,
                                 "status": "DUPLICATE" if code == "DUPLICATE_PROGRAM" else "INVALID",
                                 "reason": code,
                                 "at": now(),
@@ -391,12 +579,12 @@ class Campaigns:
                     active_attempt = None
                     continue
                 checkpoint()
-                feedback = (hidden or self.hidden)(active_attempt, candidate.source, dataset.symbol)
+                feedback = (hidden or self.hidden)(attempt_id, candidate.source, dataset.symbol)
                 checkpoint()
                 item = {
                     "id": candidate_id,
                     "campaign_id": identity,
-                    "attempt_id": active_attempt,
+                    "attempt_id": attempt_id,
                     "public": result,
                     "hidden": feedback,
                     "status": "PASS"
@@ -434,6 +622,7 @@ class Campaigns:
             )
             trial_scores = [daily_sharpe(matrix[:, i]) for i in range(matrix.shape[1])]
             diagnostics = {
+                "id": "campaign-diagnostics-" + identity,
                 "campaign_id": identity,
                 "pbo": pbo(matrix),
                 "rolling_selection": rolling_selection(
@@ -447,7 +636,19 @@ class Campaigns:
                 "interpretation": "Adaptive public-data diagnostics, not untouched validation; failed or invalid programs cannot supply return vectors.",
             }
             with self.store.transaction() as conn:
-                self.store.append(conn, "campaign-diagnostics", diagnostics)
+                retained_diagnostics = self.store.related(
+                    conn, "campaign-diagnostics", "campaign_id", identity
+                )
+                if retained_diagnostics:
+                    if retained_diagnostics[-1] != diagnostics:
+                        raise ValueError("CAMPAIGN_DIAGNOSTICS_CONFLICT")
+                else:
+                    self.store.append(
+                        conn,
+                        "campaign-diagnostics",
+                        diagnostics,
+                        diagnostics["id"],
+                    )
             if campaign.get("propose_agent_revision"):
                 checkpoint()
                 active_evolution = new_id()
@@ -514,7 +715,12 @@ class Campaigns:
         with self.store.transaction() as conn:
             state = self.store.state(conn, state_id)
             if state.get("lease") == lease and state["status"] == "RUNNING":
-                state.update(status=terminal, reason=reason, finished_at=now())
+                state.update(
+                    status=terminal,
+                    reason=reason,
+                    finished_at=now(),
+                    resume_attempt_id=None,
+                )
                 self.store.set_state(conn, state_id, state)
             already_closed = {
                 r.get("attempt_id")

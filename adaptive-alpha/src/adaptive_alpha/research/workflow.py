@@ -25,6 +25,47 @@ def _failure_code(error: Exception) -> str:
     return engineering_failure_code(error)
 
 
+def resume_research(
+    store: Store, research_attempt_id: str
+) -> tuple[Candidate, dict[str, Any], dict[str, Any]]:
+    registry = EngineeringRegistry(store)
+    with store.transaction() as conn:
+        completed = registry.completed_result(conn, research_attempt_id)
+    work = completed["work"]
+    record = completed["bundle"]
+    benchmark = completed["benchmark"]
+    spec = work.spec
+    candidate = Candidate(
+        name=spec.name,
+        hypothesis=spec.hypothesis,
+        rationale=spec.rationale,
+        evidence_ids=list(spec.evidence_ids),
+        contradictions=list(spec.contradictions),
+        failure_modes=list(spec.failure_modes),
+        source=record["source"],
+    )
+    return (
+        candidate,
+        {
+            **completed["research_usage"],
+            "research_provider": "openai",
+            "implementation_provider": "ouroboros",
+            "tokens": "externally_accounted",
+            "engineering_token_budget_requested": work.token_budget,
+            "engineering_budget_enforced_by": "isolated_ouroboros_runtime",
+            "recovered": True,
+        },
+        {
+            "work_order_id": work.id,
+            "spec_hash": work.spec_hash,
+            "engineering_bundle_id": record["id"],
+            "engineering_artifact_ids": record["artifact_ids"],
+            "implementation_benchmark_id": benchmark["id"],
+            "engineering_attempt_id": completed["engineering_attempt"]["id"],
+        },
+    )
+
+
 def implement_research(
     store: Store,
     settings: Settings,
