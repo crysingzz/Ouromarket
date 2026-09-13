@@ -70,6 +70,23 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
+  tool-worker:
+    <<: *hardened
+    profiles: [native-tools]
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.tool_worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_RUNNER_SOCKET: /var/run/docker.sock
+      ALPHA_RUNNER_IMAGE_ID: ${ALPHA_RUNNER_IMAGE_ID:-}
+    volumes:
+      - ${ALPHA_RUNNER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    group_add: ["${ALPHA_RUNNER_DOCKER_GID:-0}"]
+    networks: [database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
   evaluator:
     <<: *hardened
     build: *alpha-build

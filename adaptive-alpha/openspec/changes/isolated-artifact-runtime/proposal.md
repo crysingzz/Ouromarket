@@ -10,7 +10,8 @@ Ouroboros currently stores skills, subagents and harness as inert proposals. Exe
 - Require a pinned image and gVisor runtime for submitted source; expose only built-in acceptance fixtures on development runc.
 - Bound resources, protect the watchdog, clean up complete containers and quarantine ambiguous outcomes.
 - Record execution provenance and add unit/fault tests plus real Docker fixture acceptance.
-- Keep production runtime acceptance and engineering-registry adoption explicitly pending.
+- Add an operator-controlled durable queue for reviewed harnesses and a separate worker with cancellation, lease recovery, audit and UI visibility.
+- Keep production runsc-host acceptance and automatic tool adoption explicitly pending.
 
 ## Impact
 

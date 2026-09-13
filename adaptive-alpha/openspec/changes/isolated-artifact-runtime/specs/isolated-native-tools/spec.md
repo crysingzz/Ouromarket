@@ -36,3 +36,31 @@ Results SHALL carry source/input/request/image/policy identity, runtime, fixture
 
 - **WHEN** acceptance runs on Docker without gVisor
 - **THEN** its report identifies development-fixed-fixtures and records the production refusal
+
+### Requirement: Reviewed harness delivery
+
+Only an operator SHALL enqueue a harness that has exactly one retained operator review bound to a passing server benchmark and the current engineering runtime. The application SHALL snapshot the source, input, schemas, request, review and runtime identities before execution. A separate worker SHALL own the Docker socket and SHALL NOT receive application, model, evaluator or broker secrets. Skills, subagents and strategy programs SHALL NOT become native tools through this workflow.
+
+#### Scenario: Unreviewed artifact
+
+- **WHEN** an agent, an unreviewed artifact or an artifact of another kind is submitted for native validation
+- **THEN** the request is rejected before a runner job is claimed
+
+#### Scenario: Reviewed harness
+
+- **WHEN** an operator submits a reviewed harness with schema-valid JSON input
+- **THEN** a durable run is retained and only the isolated worker can materialize the exact bound request
+
+### Requirement: Durable native-tool lifecycle
+
+The platform SHALL retain queue, claim, resume, cancellation and terminal events. Claims SHALL use bounded leases, an expired claim MAY be resumed with a new owner, and a stale owner SHALL NOT publish a result. Cancellation SHALL reach the running controller and SHALL prevent later success. A successful result SHALL be retained once and accepted only when its request provenance, pinned image, policy, runsc runtime, cleanup and non-capital status match the queued run.
+
+#### Scenario: Worker interruption
+
+- **WHEN** a worker lease expires before a terminal result is committed
+- **THEN** another worker resumes the same run and the stale owner cannot append a result
+
+#### Scenario: Operator cancellation
+
+- **WHEN** the operator cancels a queued or running harness validation
+- **THEN** the run becomes or finishes CANCELLED and cannot later become successful

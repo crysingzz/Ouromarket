@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     ouroboros_token: SecretStr | None = None
     ouroboros_provision_workspaces: bool = False
     engineering_inline: bool = False
+    runner_socket: Path | None = None
+    runner_image_id: str = ""
     hidden_dataset_path: Path | None = None
     alpaca_data_key: SecretStr | None = None
     alpaca_data_secret: SecretStr | None = None

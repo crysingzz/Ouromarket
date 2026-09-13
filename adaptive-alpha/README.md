@@ -6,7 +6,7 @@ Python-платформа количественных исследований 
 
 **v0.3: жизненный цикл активной paper-стратегии и претендентов, инженерные задания Ouroboros, реестр артефактов и подписанные разрешения внешнего paper-исполнения.** [Что реализовано и как проверить](docs/LIFECYCLE.md). Ruff, Pyrefly и тесты с обязательным 100% statement coverage запускаются через `make check`.
 
-Добавлен отдельный [исполнитель инженерных инструментов](docs/RUNNER.md): JSON-контракт, ограниченный контейнер, отмена и контроль очистки. Производственный native Python требует gVisor; локальная приёмка использует только фиксированные тестовые программы. Автоматическое использование созданных инструментов Ouroboros ещё не подключено.
+Добавлен отдельный [исполнитель инженерных инструментов](docs/RUNNER.md): JSON-контракт, ограниченный контейнер, отмена, контроль очистки и устойчивая очередь отрецензированных harness. Только оператор ставит проверку в очередь; отдельный worker владеет Docker socket. Производственный native Python требует gVisor; локальная приёмка использует только фиксированные тестовые программы. Автоматическое применение созданных инструментов в новых заданиях Ouroboros ещё не подключено.
 
 Основа v0.2 включает поиск литературы, устойчивую очередь, ограниченный Python DSL, отдельную скрытую оценку и настройку OpenAI через UI. Прежний demo-v1 сохранён отдельно. Это ещё не полная приёмка master-ТЗ: [точная карта покрытия](docs/STATUS.md), [инструкция исследований](docs/AUTONOMOUS.md). Реальные деньги недоступны; PASS не означает инвестиционный допуск.
 
@@ -78,6 +78,7 @@ uv run pip-audit --skip-editable
 | Hypotheses/specs | `POST /hypotheses`, `GET /hypotheses/{id}`, `POST/GET /strategies`, `GET /strategies/{id}`, `GET /strategies/{id}/lineage` |
 | Experiments | `GET /attempts`, `GET /experiments` |
 | Evolution | `POST /evolution/mutate` (optional second_parent_id включает crossover) |
+| Engineering | Operator-only `GET /engineering`, `POST /engineering/artifacts/{id}/tool-runs`, `GET /engineering/tool-runs`, `POST /engineering/tool-runs/{id}/cancel` |
 | Operator | `POST /strategies/{id}/paper`, `GET /portfolio`, `POST/GET /orders`, `GET /fills` |
 | Risk | `GET /risk/limits`, `GET /risk/status`; operator-only `POST /risk/check`, `/risk/halt`, `/risk/resume` |
 | Diagnostics | Operator-only `GET /audit`, `GET /dashboard`, `POST /market/demo-refresh` |

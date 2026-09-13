@@ -12,7 +12,7 @@
 
 - [ ] Provision and independently verify runsc on the target Linux sandbox host.
 - [ ] Run the boundary/resource/cancellation suite under runsc and expand adversarial testing for that host.
-- [ ] Integrate reviewed registry artifacts, durable task leases, attempt journaling and operator visibility without exposing the Docker socket to agents/API.
+- [x] Integrate reviewed harness artifacts, durable task leases, attempt journaling and operator visibility without exposing the Docker socket to agents/API.
 - [ ] Add separately built, locked dependency profiles when an actual tool requires packages beyond stdlib.
 
-These pending items prevent declaring the full roadmap stage or self-creating Ouroboros integration complete.
+The remaining production-host and dependency-profile items prevent declaring the full roadmap stage or self-creating Ouroboros integration complete.

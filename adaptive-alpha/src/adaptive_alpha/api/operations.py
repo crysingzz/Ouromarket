@@ -12,6 +12,7 @@ from adaptive_alpha.research.forward import ForwardPaper
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.performance import PerformanceMonitor
 from adaptive_alpha.research.revalidation import Revalidation
+from adaptive_alpha.research.tool_execution import ToolExecutionQueue, ToolValidationRequest
 from adaptive_alpha.store import Store
 
 
@@ -46,6 +47,7 @@ def register_operations(
 ) -> None:
     lifecycle = StrategyLifecycle(store)
     engineering = EngineeringRegistry(store)
+    tools = ToolExecutionQueue(store)
 
     @app.post("/api/lifecycle/{candidate_id}/revalidate")
     def revalidate(
@@ -126,12 +128,19 @@ def register_operations(
 
     @app.get("/api/engineering", dependencies=[Depends(operator)])
     def artifacts() -> dict[str, Any]:
+        with store.transaction() as conn:
+            tool_worker = store.state(conn, "tool-worker")
         return {
-            "artifacts": engineering.list_artifacts(),
+            "artifacts": [
+                engineering.get_artifact(item["id"]) for item in engineering.list_artifacts()
+            ],
             "work_orders": engineering.list_work_orders(),
             "benchmarks": engineering.list_benchmarks(),
             "attempts": engineering.list_attempts(),
+            "tool_runs": tools.list(),
+            "tool_worker": tool_worker,
             "arbitrary_execution_enabled": False,
+            "reviewed_harness_execution": "isolated-runner-only",
         }
 
     @app.get("/api/engineering/artifacts/{artifact_id}", dependencies=[Depends(operator)])
@@ -151,3 +160,19 @@ def register_operations(
         artifact_id: str, body: ArtifactPromotion, actor: Annotated[str, Depends(operator)]
     ) -> dict[str, Any]:
         return engineering.promote(artifact_id, body.benchmark_id, actor)
+
+    @app.post("/api/engineering/artifacts/{artifact_id}/tool-runs", status_code=202)
+    def run_tool(
+        artifact_id: str,
+        body: ToolValidationRequest,
+        actor: Annotated[str, Depends(operator)],
+    ) -> dict[str, Any]:
+        return tools.submit(artifact_id, body, actor)
+
+    @app.get("/api/engineering/tool-runs", dependencies=[Depends(operator)])
+    def tool_runs() -> list[dict[str, Any]]:
+        return tools.list()
+
+    @app.post("/api/engineering/tool-runs/{run_id}/cancel")
+    def cancel_tool(run_id: str, actor: Annotated[str, Depends(operator)]) -> dict[str, Any]:
+        return tools.cancel(run_id, actor)
