@@ -69,8 +69,27 @@ class OpenAlex:
                 url=str(work.get("doi") or external),
                 published=str(work.get("publication_date") or "unknown"),
                 references=[str(x) for x in work.get("referenced_works", [])[:100]],
+                content_level="abstract",
+                full_text=None,
             )
-            evidence.append(Evidence(**payload, retrieved_at=now(), content_hash=digest(payload)))
+            content_hash = digest(payload)
+            evidence.append(
+                Evidence.model_validate(
+                    {
+                        **payload,
+                        "id": "evidence-"
+                        + digest(
+                            {
+                                "provider": payload["provider"],
+                                "external_id": payload["external_id"],
+                                "content_hash": content_hash,
+                            }
+                        ),
+                        "retrieved_at": now(),
+                        "content_hash": content_hash,
+                    }
+                )
+            )
         return evidence
 
 
@@ -105,8 +124,27 @@ class SemanticScholar:
                     for r in (paper.get("references") or [])[:100]
                     if r.get("paperId")
                 ],
+                "content_level": "abstract",
+                "full_text": None,
             }
-            result.append(Evidence(**payload, retrieved_at=now(), content_hash=digest(payload)))
+            content_hash = digest(payload)
+            result.append(
+                Evidence.model_validate(
+                    {
+                        **payload,
+                        "id": "evidence-"
+                        + digest(
+                            {
+                                "provider": payload["provider"],
+                                "external_id": payload["external_id"],
+                                "content_hash": content_hash,
+                            }
+                        ),
+                        "retrieved_at": now(),
+                        "content_hash": content_hash,
+                    }
+                )
+            )
         return result
 
 
@@ -141,7 +179,7 @@ class Arxiv:
 
         for entry in root.findall("a:entry", namespace)[:8]:
             external = field(entry, "id")
-            payload = {
+            payload: dict[str, Any] = {
                 "provider": "arxiv",
                 "external_id": external,
                 "title": field(entry, "title")[:2000],
@@ -149,8 +187,27 @@ class Arxiv:
                 "url": external,
                 "published": field(entry, "published"),
                 "references": [],
+                "content_level": "abstract",
+                "full_text": None,
             }
-            result.append(Evidence(**payload, retrieved_at=now(), content_hash=digest(payload)))
+            content_hash = digest(payload)
+            result.append(
+                Evidence.model_validate(
+                    {
+                        **payload,
+                        "id": "evidence-"
+                        + digest(
+                            {
+                                "provider": payload["provider"],
+                                "external_id": payload["external_id"],
+                                "content_hash": content_hash,
+                            }
+                        ),
+                        "retrieved_at": now(),
+                        "content_hash": content_hash,
+                    }
+                )
+            )
         return result
 
 

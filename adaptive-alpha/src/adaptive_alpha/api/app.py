@@ -419,6 +419,7 @@ def create_app(
             return {
                 kind: store.related(conn, kind, "campaign_id", campaign_id)
                 for kind in (
+                    "evidence-packet",
                     "candidate",
                     "candidate-result",
                     "autonomous-attempt",
@@ -434,6 +435,7 @@ def create_app(
         with store.transaction() as conn:
             return {
                 "evidence": store.list_records(conn, "evidence"),
+                "packets": store.list_records(conn, "evidence-packet"),
                 "edges": store.list_records(conn, "knowledge-edge"),
             }
 

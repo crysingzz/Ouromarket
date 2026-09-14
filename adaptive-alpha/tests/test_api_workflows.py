@@ -97,7 +97,7 @@ def test_autonomous_api_bundles_cancel_and_operator_benchmark_adoption(client):
         == 1
     )
     assert client.post(f"/api/campaigns/{job['id']}/cancel").json()["status"] == "CANCELLED"
-    assert client.get("/api/knowledge").json() == {"evidence": [], "edges": []}
+    assert client.get("/api/knowledge").json() == {"evidence": [], "packets": [], "edges": []}
     body = {
         "name": "Revised research",
         "research_instructions": "Seek evidence contradicting the mechanism",

@@ -14,7 +14,9 @@
 
 ## Что выполняется
 
-Campaign → выбранные OpenAlex/arXiv/Semantic Scholar → Literature/Market context → OpenAI structured Candidate → immutable source artifact → syntax/capability validation → causal program interpreter → public backtest → isolated hidden evaluator → retained result → next generation. Critic передаёт следующему поколению только публичные результаты. Novelty сохраняет лексическую схожесть и AST hash, не выдавая их за доказательство научной новизны.
+Перед генерацией система сохраняет content-addressed пакет доказательств: область поиска, состояние каждого источника, версии публикаций, ограниченные точные фрагменты и пробелы. Реальный исследователь обязан привязать ResearchSpec к пакету и конкретным passage ID; сервер повторно проверяет эту связь до WorkOrder. Текущие внешние коннекторы получают метаданные и аннотации, поэтому полное воспроизведение научной работы ещё не заявляется.
+
+Campaign → выбранные OpenAlex/arXiv/Semantic Scholar → пакет доказательств и Market context → OpenAI structured ResearchSpec с точными ссылками → неизменяемый WorkOrder → Ouroboros implementation bundle → syntax/capability validation → causal program interpreter → public backtest → isolated hidden evaluator → retained result → next generation. Critic передаёт следующему поколению только публичные результаты. Novelty сохраняет лексическую схожесть и AST hash, не выдавая их за доказательство научной новизны.
 
 Worker обрабатывает устойчивую очередь. Платный запрос получает резерв до отправки. При неопределённом ответе весь резерв остаётся занятым; автоматической повторной отправки нет. `tokens_charged` — консервативный резерв, фактическое usage успешного ответа хранится в артефакте. Потерявшая lease задача становится INTERRUPTED, а не исчезает. Повторный запуск требует новой явно созданной кампании. Синтаксически неверные программы сохраняются и передаются следующему поколению для исправления в пределах оставшегося числа попыток.
 

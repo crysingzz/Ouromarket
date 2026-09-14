@@ -3,7 +3,7 @@
 import json
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import numpy as np
@@ -13,9 +13,16 @@ from sqlalchemy.engine import Connection
 from adaptive_alpha.config import Settings
 from adaptive_alpha.domain import digest, new_id, now
 from adaptive_alpha.research.backtest import backtest
-from adaptive_alpha.research.contracts import CampaignRequest, Candidate, DatasetImport
+from adaptive_alpha.research.contracts import CampaignRequest, Candidate, DatasetImport, Evidence
 from adaptive_alpha.research.engineering import EngineeringRegistry
 from adaptive_alpha.research.engineering_queue import EngineeringQueue
+from adaptive_alpha.research.evidence import (
+    Department,
+    Health,
+    Source,
+    build_evidence_packet,
+    verify_evidence_packet,
+)
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.literature import search_sources
 from adaptive_alpha.research.program import Program
@@ -309,14 +316,80 @@ class Campaigns:
             with self.store.transaction() as conn:
                 dataset_record = self.store.get(conn, campaign["dataset_id"], "dataset")
                 resume_attempt_id = self.store.state(conn, state_id).get("resume_attempt_id")
-            dataset = DatasetImport.model_validate(dataset_record["data"])
-            if search:
-                evidence = search(campaign["query"])
-                source_health = {"injected": "test"}
-            else:
-                evidence, source_health = search_sources(
-                    campaign["query"], campaign.get("sources", ["openalex"])
+                retained_packets = self.store.related(
+                    conn, "evidence-packet", "campaign_id", identity
                 )
+            dataset = DatasetImport.model_validate(dataset_record["data"])
+            if len(retained_packets) > 1:
+                raise ValueError("CAMPAIGN_EVIDENCE_PACKET_AMBIGUOUS")
+            reused_packet = bool(retained_packets)
+            if retained_packets:
+                with self.store.transaction() as conn:
+                    packet = verify_evidence_packet(conn, self.store, retained_packets[0]["id"])
+                    if packet.query != campaign["query"] or packet.department != campaign.get(
+                        "department", "replication"
+                    ):
+                        raise ValueError("CAMPAIGN_EVIDENCE_PACKET_MISMATCH")
+                    evidence = [
+                        Evidence.model_validate(
+                            self.store.get(conn, binding.evidence_id, "evidence")
+                        )
+                        for binding in packet.evidence
+                    ]
+            else:
+                if search:
+                    evidence = search(campaign["query"])
+                    source_health = {"injected": "test"}
+                    requested_sources = ("injected",)
+                else:
+                    requested_sources = tuple(campaign.get("sources", ["openalex"]))
+                    evidence, source_health = search_sources(
+                        campaign["query"], list(requested_sources)
+                    )
+                if not evidence:
+                    raise ValueError("NO_RESEARCH_EVIDENCE")
+                retained_evidence = []
+                with self.store.transaction() as conn:
+                    for evidence_item in evidence:
+                        payload = evidence_item.model_dump(mode="json")
+                        try:
+                            retained = self.store.get(conn, evidence_item.id, "evidence")
+                        except KeyError:
+                            self.store.append(conn, "evidence", payload, evidence_item.id)
+                            retained_evidence.append(evidence_item)
+                        else:
+                            retained_content = {
+                                key: value
+                                for key, value in retained.items()
+                                if key != "retrieved_at"
+                            }
+                            incoming_content = {
+                                key: value
+                                for key, value in payload.items()
+                                if key != "retrieved_at"
+                            }
+                            if retained_content != incoming_content:
+                                raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
+                            retained_evidence.append(Evidence.model_validate(retained))
+                    self.store.audit(
+                        conn,
+                        "literature.searched",
+                        "research",
+                        {"campaign_id": identity, "count": len(evidence)},
+                    )
+                evidence = retained_evidence
+                packet = build_evidence_packet(
+                    identity,
+                    cast(Department, campaign.get("department", "replication")),
+                    campaign["query"],
+                    cast(tuple[Source, ...], requested_sources),
+                    cast(dict[Source, Health], source_health),
+                    evidence,
+                )
+                with self.store.transaction() as conn:
+                    self.store.append(
+                        conn, "evidence-packet", packet.model_dump(mode="json"), packet.id
+                    )
             with self.store.transaction() as conn:
                 self.store.append(
                     conn,
@@ -324,29 +397,15 @@ class Campaigns:
                     {
                         "campaign_id": identity,
                         "query": campaign["query"],
-                        "source_health": source_health,
+                        "requested_sources": list(packet.requested_sources),
+                        "source_health": packet.source_health,
+                        "evidence_packet_id": packet.id,
+                        "evidence_status": packet.status,
+                        "reused_packet": reused_packet,
                         "at": now(),
                     },
                 )
-            if not evidence:
-                raise ValueError("NO_RESEARCH_EVIDENCE")
-            with self.store.transaction() as conn:
-                for item in evidence:
-                    payload = item.model_dump(mode="json")
-                    try:
-                        retained = self.store.get(conn, item.id, "evidence")
-                    except KeyError:
-                        self.store.append(conn, "evidence", payload, item.id)
-                    else:
-                        if retained != payload:
-                            raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
-                self.store.audit(
-                    conn,
-                    "literature.searched",
-                    "research",
-                    {"campaign_id": identity, "count": len(evidence)},
-                )
-            literature = LiteratureAgent().summarize(evidence)
+            literature = LiteratureAgent().summarize(evidence, packet)
             market = MarketAgent().analyze(dataset)
             revision = None
             if campaign.get("agent_revision_id"):
@@ -436,6 +495,13 @@ class Campaigns:
                     "department": campaign.get("department", "replication"),
                     "market": market,
                     "evidence": literature["documents"][:8],
+                    "evidence_packet": {
+                        "id": packet.id,
+                        "status": packet.status,
+                        "gaps": list(packet.gaps),
+                        "search_scope": literature["search_scope"],
+                        "authority": packet.authority,
+                    },
                     "previous": previous
                     if campaign.get("workflow", "adaptive") == "adaptive"
                     else None,
@@ -492,6 +558,10 @@ class Campaigns:
                     "generation_path": generation_path,
                     "scope": "internal-paper",
                     "capital_eligible": False,
+                    "research_department": campaign.get("department", "replication"),
+                    "evidence_packet_id": packet.id,
+                    "evidence_status": packet.status,
+                    "evidence_gaps": list(packet.gaps),
                     **engineering,
                     "provenance": provenance(),
                     "created_at": now(),
@@ -537,6 +607,19 @@ class Campaigns:
                                     "relation": "cited_by",
                                     "asserted_by": "model",
                                     "verified": False,
+                                },
+                            )
+                        for anchor in artifact.get("citation_anchors", []):
+                            self.store.append(
+                                conn,
+                                "knowledge-edge",
+                                {
+                                    "from": anchor["passage_id"],
+                                    "to": candidate_id,
+                                    "relation": "quoted_by",
+                                    "evidence_id": anchor["evidence_id"],
+                                    "asserted_by": "model",
+                                    "verified": True,
                                 },
                             )
                 parent_id = candidate_id

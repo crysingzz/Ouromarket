@@ -1,29 +1,29 @@
-# Gates: qualify and reuse Ouroboros engineering tools
+# Gates: bind research departments to evidence packets
 
-OWNS: GATES.md, adaptive-alpha/src/adaptive_alpha/research/engineering.py, adaptive-alpha/src/adaptive_alpha/research/tool_catalog.py, adaptive-alpha/src/adaptive_alpha/research/engineering_worker.py, adaptive-alpha/src/adaptive_alpha/research/ouroboros.py, adaptive-alpha/src/adaptive_alpha/api/operations.py, adaptive-alpha/src/adaptive_alpha/ui/**, adaptive-alpha/tests/test_tool_catalog.py, adaptive-alpha/docs/**, adaptive-alpha/openspec/**
+OWNS: GATES.md, adaptive-alpha/src/adaptive_alpha/research/contracts.py, adaptive-alpha/src/adaptive_alpha/research/evidence.py, adaptive-alpha/src/adaptive_alpha/research/literature.py, adaptive-alpha/src/adaptive_alpha/research/roles.py, adaptive-alpha/src/adaptive_alpha/research/campaigns.py, adaptive-alpha/src/adaptive_alpha/research/engineering.py, adaptive-alpha/src/adaptive_alpha/research/workflow.py, adaptive-alpha/src/adaptive_alpha/api/app.py, adaptive-alpha/src/adaptive_alpha/ui/**, adaptive-alpha/tests/test_evidence_packets.py, adaptive-alpha/tests/test_autonomous.py, adaptive-alpha/tests/test_api_workflows.py, adaptive-alpha/tests/test_campaign_recovery.py, adaptive-alpha/tests/test_generation_route.py, adaptive-alpha/tests/test_operations.py, adaptive-alpha/docs/**, adaptive-alpha/openspec/**
 
-Scope: matched independent qualification, operator adoption/revocation and immutable reuse of engineering tools in future WorkOrders; real model and runsc host admission remain external
+Scope: immutable search scope, bounded citation passages and explicit replication/novel evidence gaps; full-text acquisition and real provider acceptance remain later work
 
-- [x] G1: the operator can prepare three idempotent matched benchmark pairs while unreviewed or non-independent inputs fail closed
-  CHECK: uv run pytest tests/test_tool_catalog.py -k 'prepares_idempotent_paired_benchmark_plans or rejects_unreviewed_or_nonindependent_benchmark_inputs'
+- [x] G1: source results become tamper-evident packets with bounded passages, exact provider health and explicit evidence gaps
+  CHECK: uv run pytest tests/test_evidence_packets.py -k 'builds_bounded_tamper_evident_packet or rejects_tampered_passage_and_duplicate_evidence'
   EXPECT: 2 passed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=2ad4665343931eb0d090904944b3118f4c3693cd7607afbf5f7d73d9856012a4; exit=0; EXPECT=matched; output-sha256=8d89f59c25586b5636544d4540e78625c526d008a5f1feddc3654e5de8d813fc; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=5c86347d920cb21dcf6f6773ef4a4b0c622915c520224e0c7b3aefff58514f3a; exit=0; EXPECT=matched; output-sha256=3c2c22c46515cc860dbb7df955a47a4dcaf7a5f5bdd09b62e64a02445b5062c4; output-bytes=1055; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
 
-- [x] G2: independent wins qualify a reusable tool and an adopted tool is snapshotted into the next Ouroboros WorkOrder
-  CHECK: uv run pytest tests/test_tool_catalog.py -k 'qualifies_and_adopts_reusable_tool or active_tool_is_snapshotted_for_ouroboros'
+- [x] G2: replication and novel campaigns retain distinct evidence status and bind real researcher citations to the frozen WorkOrder
+  CHECK: uv run pytest tests/test_evidence_packets.py -k 'campaigns_retain_department_evidence_status or researcher_citations_are_bound_to_work_order'
   EXPECT: 2 passed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=92a08824d154762b36f65f1179839d08a14c9e19ed57e706c1227ce1dcc96915; exit=0; EXPECT=matched; output-sha256=7f89cda89a8caba017a55f7bdcf5853f886014db9c62b2af956716fcb5477b6d; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=d49bca820806489fcaf60988a5c33ce151089e3e54c0cf00211e17022ee0ed6d; exit=0; EXPECT=matched; output-sha256=d7f0aab3c2d9ceefdfd6cec7ee660fb5ea4f17df3218e815f6ef387984ea49c6; output-bytes=1055; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
 
-- [x] G3: regressions and revocation block reuse, and only the operator API can control the lifecycle exposed in the UI
-  CHECK: uv run pytest tests/test_tool_catalog.py -k 'regression_and_revocation_fail_closed or operator_api_and_ui_show_tool_lifecycle'
+- [x] G3: evidence packets are visible through authenticated API/UI while document instructions remain inert quoted data
+  CHECK: uv run pytest tests/test_evidence_packets.py -k 'api_and_ui_expose_evidence_packet or document_instructions_never_become_authority'
   EXPECT: 2 passed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=e51862a2a29969772bcf381a53f3702db5596a014a84cfe45464565e7183cbb5; exit=0; EXPECT=matched; output-sha256=0f36677c16eed5ac8a431cd850aef3cd5d607be2fbc0a235225600b9ccd32542; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=5104bfd18886f64f9029945aa9ac2bea33847c2e2844c056e1f66ede159095a7; exit=0; EXPECT=matched; output-sha256=5826c84ff95b0a3c82bce523da1dabec0580fdc15c102ea492c830f5593acc48; output-bytes=1055; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
 
-- [x] G4: lint, typing, full statement coverage, and all strict OpenSpec items pass together
-  CHECK: make check
-  EXPECT: Totals: 20 passed, 0 failed
+- [x] G4: lint, typing, full statement coverage, dependency audit and all strict OpenSpec items pass together
+  CHECK: make check && uv run pip-audit
+  EXPECT: No known vulnerabilities found
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=59d96ea4695db9f7e605cf00c32deae22fb1aa642c1b15da1803226b0946210c; exit=0; EXPECT=matched; output-sha256=d1aac536f68bd0b66ae1b8a473d636ba42afba0e165d2a281b34e1886dbd9376; output-bytes=9319; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=dd2342b679ba84dc0c8c0fdeebfe637599ce34c8cbdacafb34c0a081ea482b7e; exit=0; EXPECT=matched; output-sha256=4757ba2f8c31007d3f0f7ed1a2c432d71a4de8148c4ce8f8d9f3c1d16c00375e; output-bytes=9679; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries

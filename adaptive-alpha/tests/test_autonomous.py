@@ -162,7 +162,10 @@ def test_openalex_and_openai_transport_contracts() -> None:
         )
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
-        assert OpenAlex(client).search("momentum")[0].abstract == "Test effect"
+        first = OpenAlex(client).search("momentum")[0]
+        second = OpenAlex(client).search("momentum")[0]
+        assert first.abstract == "Test effect" and first.content_level == "abstract"
+        assert first.id == second.id and first.content_hash == second.content_hash
         provider = OpenAIProvider("test-key", client)
         result, usage = provider.generate("configured-model", {}, 20_000)
         assert result.source == SOURCE and usage["output_tokens"] == 200

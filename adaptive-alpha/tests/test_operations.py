@@ -13,6 +13,7 @@ from test_engineering import SOURCE, proposal, spec
 from adaptive_alpha.domain import new_id
 from adaptive_alpha.research import workflow
 from adaptive_alpha.research.engineering import EngineeringRegistry, ImplementationBundle
+from adaptive_alpha.research.evidence import build_evidence_packet
 from adaptive_alpha.research.forward import ForwardPaper
 
 
@@ -140,10 +141,19 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
     with store.transaction() as conn:
         store.append(conn, "dataset", {"manifest": {"content_hash": "a" * 64}}, "dataset")
         store.append(conn, "evidence", ev.model_dump(), ev.id)
+    packet = build_evidence_packet(
+        "campaign", "replication", "test effect", ("injected",), {"injected": "test"}, [ev]
+    )
+    with store.transaction() as conn:
+        store.append(conn, "evidence-packet", packet.model_dump(mode="json"), packet.id)
     research = spec(
         dataset_id="other" if mode == "wrong_dataset" else "dataset",
         evidence_ids=[ev.id],
         source_hashes=[ev.content_hash],
+        department="replication",
+        evidence_packet_id=packet.id,
+        citation_anchors=[{"evidence_id": ev.id, "passage_id": packet.passages[0].id}],
+        evidence_gaps=list(packet.gaps),
     )
 
     def produce(self, model, context, budget, response_type, instructions):
@@ -170,7 +180,13 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
         store,
         settings,
         "fixture",
-        {"evidence": [{"id": ev.id}], "campaign_id": "campaign", "attempt_id": "attempt"},
+        {
+            "evidence": [{"id": ev.id}],
+            "evidence_packet": packet.model_dump(mode="json"),
+            "department": "replication",
+            "campaign_id": "campaign",
+            "attempt_id": "attempt",
+        },
         "dataset",
         40000,
         100,

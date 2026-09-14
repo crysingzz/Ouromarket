@@ -6,17 +6,41 @@ from typing import Any
 
 from adaptive_alpha.domain import digest
 from adaptive_alpha.research.contracts import Candidate, DatasetImport, Evidence
+from adaptive_alpha.research.evidence import ResearchEvidencePacket
 from adaptive_alpha.research.portfolio import market_features
 
 
 class LiteratureAgent:
-    def summarize(self, evidence: list[Evidence]) -> dict[str, Any]:
+    def summarize(self, evidence: list[Evidence], packet: ResearchEvidencePacket) -> dict[str, Any]:
+        passages: dict[str, list[dict[str, str]]] = {}
+        for passage in packet.passages:
+            passages.setdefault(passage.evidence_id, []).append(
+                {
+                    "id": passage.id,
+                    "field": passage.field,
+                    "text": passage.text,
+                }
+            )
         return {
             "role": "literature",
             "documents": [
-                {"id": e.id, "title": e.title, "abstract": e.abstract[:2000]} for e in evidence
+                {
+                    "id": e.id,
+                    "title": e.title,
+                    "content_level": e.content_level,
+                    "passages": passages.get(e.id, []),
+                }
+                for e in evidence
             ],
-            "limitations": ["Metadata and abstracts only; full-text replication not established"],
+            "evidence_packet_id": packet.id,
+            "evidence_status": packet.status,
+            "limitations": list(packet.gaps),
+            "search_scope": {
+                "query": packet.query,
+                "requested_sources": list(packet.requested_sources),
+                "source_health": packet.source_health,
+            },
+            "authority": packet.authority,
             "source_hashes": [e.content_hash for e in evidence],
         }
 

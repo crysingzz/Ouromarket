@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from adaptive_alpha.domain import Contract, new_id
 
@@ -62,6 +62,16 @@ class Evidence(Contract):
     references: list[str]
     retrieved_at: str
     content_hash: str
+    content_level: Literal["metadata", "abstract", "full_text"] = "abstract"
+    full_text: str | None = Field(default=None, max_length=100_000)
+
+    @model_validator(mode="after")
+    def content_claim_matches(self) -> "Evidence":
+        if self.content_level == "full_text" and not self.full_text:
+            raise ValueError("FULL_TEXT_CONTENT_REQUIRED")
+        if self.content_level != "full_text" and self.full_text is not None:
+            raise ValueError("FULL_TEXT_LEVEL_REQUIRED")
+        return self
 
 
 class ProgramEvaluation(Contract):

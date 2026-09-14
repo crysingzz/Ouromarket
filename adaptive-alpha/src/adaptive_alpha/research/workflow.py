@@ -62,6 +62,10 @@ def resume_research(
             "engineering_artifact_ids": record["artifact_ids"],
             "implementation_benchmark_id": benchmark["id"],
             "engineering_attempt_id": completed["engineering_attempt"]["id"],
+            "research_department": spec.department,
+            "evidence_packet_id": spec.evidence_packet_id,
+            "citation_anchors": [item.model_dump(mode="json") for item in spec.citation_anchors],
+            "evidence_gaps": list(spec.evidence_gaps),
         },
     )
 
@@ -105,7 +109,13 @@ def implement_research(
         model, research_context, allowance, ResearchSpec, RESEARCH_INSTRUCTIONS
     )
     checkpoint()
-    if spec.dataset_id != dataset_id or set(spec.evidence_ids) - sources.keys():
+    evidence_packet = context["evidence_packet"]
+    if (
+        spec.dataset_id != dataset_id
+        or set(spec.evidence_ids) - sources.keys()
+        or spec.department != context["department"]
+        or spec.evidence_packet_id != evidence_packet["id"]
+    ):
         raise ValueError("RESEARCH_SPEC_INPUT_MISMATCH")
     registry = EngineeringRegistry(store)
     work = registry.create_work_order(
@@ -169,5 +179,10 @@ def implement_research(
             "engineering_artifact_ids": record["artifact_ids"],
             "implementation_benchmark_id": benchmark["id"],
             "engineering_attempt_id": engineering_attempt["id"],
+            "research_department": spec.department,
+            "evidence_packet_id": spec.evidence_packet_id,
+            "evidence_status": evidence_packet["status"],
+            "citation_anchors": [item.model_dump(mode="json") for item in spec.citation_anchors],
+            "evidence_gaps": list(spec.evidence_gaps),
         },
     )
