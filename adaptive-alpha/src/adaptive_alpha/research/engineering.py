@@ -7,7 +7,7 @@ sources are reviewable proposals: registration or review never executes them.
 import hashlib
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy.engine import Connection
@@ -23,6 +23,7 @@ Capability = Literal[
     "read_public_data", "compute_signal", "describe_research_tool", "run_contract_tests"
 ]
 EngineeringStatus = Literal["RUNNING", "VALIDATING", "SUCCEEDED", "FAILED", "CANCELLED"]
+WorkPurpose = Literal["strategy-implementation", "tool-benchmark"]
 CAPABILITIES: tuple[Capability, ...] = (
     "read_public_data",
     "compute_signal",
@@ -68,6 +69,22 @@ class ResearchSpec(Contract):
         return self
 
 
+class ToolAttachment(Contract):
+    artifact_id: Short
+    kind: Literal["skill", "subagent", "harness"]
+    name: Short
+    source: str = Field(min_length=10, max_length=16_384)
+    source_digest: Hash
+    runtime_digest: Hash
+    capabilities: tuple[Capability, ...] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode="after")
+    def source_matches(self) -> "ToolAttachment":
+        if hashlib.sha256(self.source.encode()).hexdigest() != self.source_digest:
+            raise ValueError("TOOL_ATTACHMENT_SOURCE_MISMATCH")
+        return self
+
+
 class WorkOrder(Contract):
     id: Short
     spec: ResearchSpec
@@ -76,8 +93,22 @@ class WorkOrder(Contract):
     runtime_digest: Hash
     capabilities: tuple[Capability, ...] = CAPABILITIES
     parent_artifact_ids: tuple[Short, ...] = Field(default=(), max_length=20)
+    purpose: WorkPurpose = "strategy-implementation"
+    tools: tuple[ToolAttachment, ...] = Field(default=(), max_length=12)
+    toolset_digest: Hash | None = None
     token_budget: int = Field(default=20_000, ge=1000, le=100_000)
     max_seconds: int = Field(default=120, ge=1, le=1800)
+
+    @model_validator(mode="after")
+    def toolset_matches(self) -> "WorkOrder":
+        payload = [tool.model_dump(mode="json") for tool in self.tools]
+        if self.toolset_digest is not None and self.toolset_digest != digest(payload):
+            raise ValueError("WORK_ORDER_TOOLSET_MISMATCH")
+        if len(canonical(payload).encode()) > 60_000:
+            raise ValueError("WORK_ORDER_TOOLSET_TOO_LARGE")
+        if len({tool.artifact_id for tool in self.tools}) != len(self.tools):
+            raise ValueError("WORK_ORDER_TOOL_DUPLICATE")
+        return self
 
 
 class ArtifactProposal(Contract):
@@ -145,19 +176,16 @@ class EngineeringRegistry:
         token_budget: int = 20_000,
         max_seconds: int = 120,
         parent_artifact_ids: tuple[str, ...] = (),
+        tool_artifact_ids: tuple[str, ...] | None = None,
+        purpose: WorkPurpose = "strategy-implementation",
+        work_id: str | None = None,
     ) -> WorkOrder:
         # Revalidate to catch nested mutable values or model_copy(update=...) bypasses.
         spec = ResearchSpec.model_validate(spec.model_dump(mode="json"))
-        work = WorkOrder(
-            id="work-" + new_id(),
-            spec=spec,
-            spec_hash=digest(spec.model_dump(mode="json")),
-            input_digest=digest({"dataset": spec.dataset_hash, "sources": spec.source_hashes}),
-            runtime_digest=runtime_digest(),
-            parent_artifact_ids=parent_artifact_ids,
-            token_budget=token_budget,
-            max_seconds=max_seconds,
-        )
+        if purpose == "tool-benchmark" and actor != "operator":
+            raise ValueError("OPERATOR_TOOL_BENCHMARK_REQUIRED")
+        if tool_artifact_ids is not None and actor != "operator":
+            raise ValueError("OPERATOR_TOOL_SELECTION_REQUIRED")
         with self.store.transaction() as conn:
             dataset = self.store.get(conn, spec.dataset_id, "dataset")
             if dataset["manifest"]["content_hash"] != spec.dataset_hash:
@@ -168,6 +196,43 @@ class EngineeringRegistry:
                     raise ValueError("SPEC_EVIDENCE_HASH_MISMATCH")
             for identity in parent_artifact_ids:
                 self.store.get(conn, identity, "engineering-artifact")
+            from adaptive_alpha.research.tool_catalog import ToolCatalog
+
+            catalog = ToolCatalog(self.store)
+            tools = catalog.attachments(
+                conn,
+                tool_artifact_ids,
+                require_active=purpose == "strategy-implementation",
+            )
+            tool_payload = [tool.model_dump(mode="json") for tool in tools]
+            toolset_digest = digest(tool_payload)
+            work = WorkOrder(
+                id=work_id or "work-" + new_id(),
+                spec=spec,
+                spec_hash=digest(spec.model_dump(mode="json")),
+                input_digest=digest(
+                    {
+                        "dataset": spec.dataset_hash,
+                        "sources": spec.source_hashes,
+                        "toolset": toolset_digest,
+                    }
+                ),
+                runtime_digest=runtime_digest(),
+                parent_artifact_ids=parent_artifact_ids,
+                purpose=purpose,
+                tools=tools,
+                toolset_digest=toolset_digest,
+                token_budget=token_budget,
+                max_seconds=max_seconds,
+            )
+            try:
+                previous = self.store.get(conn, work.id, "work-order")
+            except KeyError:
+                previous = None
+            if previous is not None:
+                if previous != work.model_dump(mode="json"):
+                    raise ValueError("WORK_ORDER_ID_CONFLICT")
+                return work
             self.store.append(conn, "work-order", work.model_dump(mode="json"), work.id)
             self.store.audit(conn, "engineering.work_registered", actor, {"id": work.id})
         return work
@@ -247,9 +312,15 @@ class EngineeringRegistry:
         }
 
     def create_attempt(
-        self, work_order_id: str, campaign_id: str, research_attempt_id: str, actor: str
+        self,
+        work_order_id: str,
+        campaign_id: str,
+        research_attempt_id: str,
+        actor: str,
+        *,
+        attempt_id: str | None = None,
     ) -> dict[str, Any]:
-        identity = "engineering-run-" + new_id()
+        identity = attempt_id or "engineering-run-" + new_id()
         with self.store.transaction() as conn:
             work = WorkOrder.model_validate(self.store.get(conn, work_order_id, "work-order"))
             record = {
@@ -263,6 +334,15 @@ class EngineeringRegistry:
                 "budget": {"tokens": work.token_budget, "seconds": work.max_seconds},
                 "created_at": now(),
             }
+            try:
+                previous = self.store.get(conn, identity, "engineering-attempt")
+            except KeyError:
+                previous = None
+            if previous is not None:
+                record["created_at"] = cast(str, previous["created_at"])
+                if previous != record:
+                    raise ValueError("ENGINEERING_ATTEMPT_ID_CONFLICT")
+                return previous
             self.store.append(conn, "engineering-attempt", record, identity)
             self.store.set_state(
                 conn,

@@ -12,6 +12,13 @@ from adaptive_alpha.research.forward import ForwardPaper
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.performance import PerformanceMonitor
 from adaptive_alpha.research.revalidation import Revalidation
+from adaptive_alpha.research.tool_catalog import (
+    ToolAdoptionRequest,
+    ToolBenchmarkPlanRequest,
+    ToolCatalog,
+    ToolQualificationRequest,
+    ToolRevocationRequest,
+)
 from adaptive_alpha.research.tool_execution import ToolExecutionQueue, ToolValidationRequest
 from adaptive_alpha.store import Store
 
@@ -48,6 +55,7 @@ def register_operations(
     lifecycle = StrategyLifecycle(store)
     engineering = EngineeringRegistry(store)
     tools = ToolExecutionQueue(store)
+    catalog = ToolCatalog(store)
 
     @app.post("/api/lifecycle/{candidate_id}/revalidate")
     def revalidate(
@@ -139,6 +147,7 @@ def register_operations(
             "attempts": engineering.list_attempts(),
             "tool_runs": tools.list(),
             "tool_worker": tool_worker,
+            "tool_catalog": catalog.overview(),
             "arbitrary_execution_enabled": False,
             "reviewed_harness_execution": "isolated-runner-only",
         }
@@ -176,3 +185,34 @@ def register_operations(
     @app.post("/api/engineering/tool-runs/{run_id}/cancel")
     def cancel_tool(run_id: str, actor: Annotated[str, Depends(operator)]) -> dict[str, Any]:
         return tools.cancel(run_id, actor)
+
+    @app.post("/api/engineering/tool-benchmark-plans", status_code=201)
+    def prepare_tool_benchmark(
+        body: ToolBenchmarkPlanRequest,
+        actor: Annotated[str, Depends(operator)],
+    ) -> dict[str, Any]:
+        return catalog.prepare(body, actor)
+
+    @app.post("/api/engineering/artifacts/{artifact_id}/qualify")
+    def qualify_tool(
+        artifact_id: str,
+        body: ToolQualificationRequest,
+        actor: Annotated[str, Depends(operator)],
+    ) -> dict[str, Any]:
+        return catalog.qualify(artifact_id, body, actor)
+
+    @app.post("/api/engineering/artifacts/{artifact_id}/adopt")
+    def adopt_tool(
+        artifact_id: str,
+        body: ToolAdoptionRequest,
+        actor: Annotated[str, Depends(operator)],
+    ) -> dict[str, Any]:
+        return catalog.adopt(artifact_id, body.qualification_id, actor)
+
+    @app.post("/api/engineering/artifacts/{artifact_id}/revoke")
+    def revoke_tool(
+        artifact_id: str,
+        body: ToolRevocationRequest,
+        actor: Annotated[str, Depends(operator)],
+    ) -> dict[str, Any]:
+        return catalog.revoke(artifact_id, body.reason, actor)

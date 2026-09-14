@@ -19,3 +19,14 @@ The platform SHALL execute trusted templates and interpret generated signal-pyth
 #### Scenario: Arbitrary candidate code
 - **WHEN** an agent proposes source code
 - **THEN** the validator rejects unsupported capabilities before evaluation and never imports the candidate
+
+### Requirement: Evidence-bound engineering tool reuse
+The platform SHALL compare each proposed skill, subagent or harness against the admitted toolset on at least three independent matched WorkOrders. Qualification MUST require a two-thirds win rate with no regression. Only an operator MAY adopt, supersede or revoke an exact reviewed version. Every later strategy WorkOrder SHALL snapshot admitted tool sources and digests. Revoked tools and changes that would strand an active dependent MUST fail before a model call.
+
+#### Scenario: Qualified tool improves independent tasks
+- **WHEN** a reviewed tool wins at least two of three independent matched comparisons without a regression and the operator adopts it
+- **THEN** the next WorkOrder contains its exact source, provenance and toolset digest while granting no capital, evaluator, risk or broker authority
+
+#### Scenario: Tool is revoked before queued use
+- **WHEN** an operator revokes a tool after a WorkOrder captured it but before Ouroboros starts
+- **THEN** the worker rejects that WorkOrder without invoking the model

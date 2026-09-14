@@ -1,29 +1,29 @@
-# Gates: integrate reviewed Ouroboros harnesses with the isolated runner
+# Gates: qualify and reuse Ouroboros engineering tools
 
-OWNS: GATES.md, adaptive-alpha/src/adaptive_alpha/research/tool_execution.py, adaptive-alpha/src/adaptive_alpha/research/tool_worker.py, adaptive-alpha/src/adaptive_alpha/api/operations.py, adaptive-alpha/src/adaptive_alpha/config.py, adaptive-alpha/src/adaptive_alpha/ui/**, adaptive-alpha/tests/test_tool_execution.py, adaptive-alpha/compose.yaml, adaptive-alpha/docs/**, adaptive-alpha/openspec/**
+OWNS: GATES.md, adaptive-alpha/src/adaptive_alpha/research/engineering.py, adaptive-alpha/src/adaptive_alpha/research/tool_catalog.py, adaptive-alpha/src/adaptive_alpha/research/engineering_worker.py, adaptive-alpha/src/adaptive_alpha/research/ouroboros.py, adaptive-alpha/src/adaptive_alpha/api/operations.py, adaptive-alpha/src/adaptive_alpha/ui/**, adaptive-alpha/tests/test_tool_catalog.py, adaptive-alpha/docs/**, adaptive-alpha/openspec/**
 
-Scope: durable operator-controlled validation of reviewed harness artifacts in the separate native-tool runner; production runsc host admission remains external
+Scope: matched independent qualification, operator adoption/revocation and immutable reuse of engineering tools in future WorkOrders; real model and runsc host admission remain external
 
-- [x] G1: a reviewed harness executes through the worker and an expired lease is safely resumed with one retained result
-  CHECK: uv run pytest tests/test_tool_execution.py -k 'executes_reviewed_harness or resumes_expired_tool_lease'
+- [x] G1: the operator can prepare three idempotent matched benchmark pairs while unreviewed or non-independent inputs fail closed
+  CHECK: uv run pytest tests/test_tool_catalog.py -k 'prepares_idempotent_paired_benchmark_plans or rejects_unreviewed_or_nonindependent_benchmark_inputs'
   EXPECT: 2 passed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=83b27a4b45f58c16199277ed7618547b92fce1949fba039afa2b2681e2d3413f; exit=0; EXPECT=matched; output-sha256=a75e4d09c2fae7b86030b496cd0d755c5f25bb433b300903214165a00b38ce99; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=2ad4665343931eb0d090904944b3118f4c3693cd7607afbf5f7d73d9856012a4; exit=0; EXPECT=matched; output-sha256=8d89f59c25586b5636544d4540e78625c526d008a5f1feddc3654e5de8d813fc; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
 
-- [x] G2: unreviewed or non-harness artifacts are rejected and cancellation fences a stale worker
-  CHECK: uv run pytest tests/test_tool_execution.py -k 'rejects_unreviewed_or_wrong_artifact or cancellation_fences_stale_owner'
+- [x] G2: independent wins qualify a reusable tool and an adopted tool is snapshotted into the next Ouroboros WorkOrder
+  CHECK: uv run pytest tests/test_tool_catalog.py -k 'qualifies_and_adopts_reusable_tool or active_tool_is_snapshotted_for_ouroboros'
   EXPECT: 2 passed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=39928711cf4a1356c7756ebc951bfd886f2bdb7d7079290d04a4770a295d1541; exit=0; EXPECT=matched; output-sha256=30699387b1d0c77608be0494d3e05bd9edd0e16e16b248c62caa3300cae713cd; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=92a08824d154762b36f65f1179839d08a14c9e19ed57e706c1227ce1dcc96915; exit=0; EXPECT=matched; output-sha256=7f89cda89a8caba017a55f7bdcf5853f886014db9c62b2af956716fcb5477b6d; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
 
-- [x] G3: only the operator API can enqueue tool validation and UI/Compose expose the isolated worker without giving the API a Docker socket
-  CHECK: uv run pytest tests/test_tool_execution.py -k 'operator_api_and_ui_visibility or compose_isolates_tool_worker'
+- [x] G3: regressions and revocation block reuse, and only the operator API can control the lifecycle exposed in the UI
+  CHECK: uv run pytest tests/test_tool_catalog.py -k 'regression_and_revocation_fail_closed or operator_api_and_ui_show_tool_lifecycle'
   EXPECT: 2 passed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=a3ece9aff68993d06b5164bd042f5463a006fa50bed997257b57f31c5505ecb9; exit=0; EXPECT=matched; output-sha256=4350950126feb57880cc8c2d5dc3a80c266576c8488f80d0812daa2b1ce9d8c8; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=e51862a2a29969772bcf381a53f3702db5596a014a84cfe45464565e7183cbb5; exit=0; EXPECT=matched; output-sha256=0f36677c16eed5ac8a431cd850aef3cd5d607be2fbc0a235225600b9ccd32542; output-bytes=1056; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
 
 - [x] G4: lint, typing, full statement coverage, and all strict OpenSpec items pass together
   CHECK: make check
   EXPECT: Totals: 20 passed, 0 failed
   CWD: adaptive-alpha
-  EVIDENCE: automatic-evidence=v1; definition-sha256=59d96ea4695db9f7e605cf00c32deae22fb1aa642c1b15da1803226b0946210c; exit=0; EXPECT=matched; output-sha256=fc05f34fa267f391b45d072c374e20404a8e505236aa1c8bd52e4e1d5aa366b8; output-bytes=9165; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=59d96ea4695db9f7e605cf00c32deae22fb1aa642c1b15da1803226b0946210c; exit=0; EXPECT=matched; output-sha256=d1aac536f68bd0b66ae1b8a473d636ba42afba0e165d2a281b34e1886dbd9376; output-bytes=9319; shell=/bin/sh; cwd=/Users/crysingzz/Desktop/projects/ouromarket-repository/adaptive-alpha; path=74401630f0b5/19 entries

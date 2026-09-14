@@ -11,6 +11,7 @@ from adaptive_alpha.config import Settings
 from adaptive_alpha.research.engineering import EngineeringRegistry
 from adaptive_alpha.research.engineering_queue import EngineeringQueue, Terminal
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
+from adaptive_alpha.research.tool_catalog import ToolCatalog
 from adaptive_alpha.store import Store
 
 
@@ -43,6 +44,7 @@ def run_once(store: Store, settings: Settings, attempt_id: str | None = None) ->
         if existing:
             record = existing[0]
         else:
+            ToolCatalog(store).verify_work_order(work)
             engineer = OuroborosEngineer(
                 settings.ouroboros_url,
                 settings.ouroboros_workspace,

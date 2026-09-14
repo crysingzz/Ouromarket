@@ -8,7 +8,8 @@
 
 - [x] 2.1 Define isolated work-order/result contracts for strategy, skill, subagent and harness artifacts.
 - [x] 2.2 Validate declared capabilities and reject any protected control-plane target.
-- [x] 2.3 Add matched artifact contract benchmark and operator review workflow. Non-strategy artifacts remain inert proposals; runtime adoption is not implemented.
+- [x] 2.3 Add matched artifact contract benchmark and operator review workflow. Non-strategy artifacts remain inert until separately qualified.
+- [x] 2.4 Add three-task matched qualification, operator adoption/supersession/revocation, dependency protection and immutable tool snapshots for future Ouroboros WorkOrders.
 
 ## 3. Research and evaluation workflow
 
@@ -30,6 +31,6 @@
 
 ## Remaining integration boundaries
 
-- [ ] Connect reviewed skills/subagents/harnesses to an isolated executable research runtime and independently benchmark actual self-evolution.
+- [ ] Run model-created skills/subagents/harnesses through the implemented qualification lifecycle on an admitted Ouroboros and gVisor deployment; automated acceptance uses controlled outputs only.
 - [ ] Configure and verify real OpenAI/Ouroboros calls and the external paper account; no credentials or paid calls were used in automated acceptance.
 - [ ] Add alpha-decay monitoring and general multi-strategy portfolio execution. Live capital is unavailable in v0.3.
