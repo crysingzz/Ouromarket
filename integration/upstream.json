@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/razzant/ouroboros.git",
+  "commit": "b9bcc2da71e0bd51b6f5f906890b3b80265defed",
+  "release": "6.114.0",
+  "source_path": "ouroboros-runtime",
+  "profile": "protocol-bootstrap",
+  "execution_enabled": false
+}

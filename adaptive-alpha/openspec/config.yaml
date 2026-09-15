@@ -1,0 +1,25 @@
+schema: spec-driven
+context: |
+  Adaptive Alpha Engine: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy,
+  PostgreSQL, Polars/NumPy, uv.lock, Docker Compose, same-origin browser UI.
+  Independent package within the Ouroboros source repository.
+  Master specification: docs/master-specification.md (user-supplied source).
+  Runtime is demo-paper only. Never present synthetic validation as investment evidence.
+  OpenSpec describes platform behavior. StrategySpec describes a candidate strategy.
+  Research may propose; evaluator, risk, permissions, audit and capital gates are trusted.
+  Untrusted Python is never eval/exec/imported by API, evaluator or investment processes.
+  signal-python-v1 is a bounded AST data language with flat numeric values and no host capabilities.
+  New agent runtimes get API-only research identity, no host checkout or Docker socket.
+  All failed and interrupted attempts must remain available for audit.
+rules:
+  proposal:
+    - State implemented scope, deferred scope and measurable acceptance criteria.
+    - Identify affected invariants INV-001 through INV-012.
+  design:
+    - Describe trust boundaries, failure modes and recovery.
+    - Separate baseline implementation from planned capabilities.
+  specs:
+    - Use SHALL or MUST and at least one WHEN/THEN scenario per requirement.
+  tasks:
+    - Link negative-path verification to critical invariants.
+    - Keep unfinished work unchecked.

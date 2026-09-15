@@ -1,0 +1,13 @@
+.venv/
+.env
+.secrets/
+.state/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.db
+*.db-*
+node_modules/

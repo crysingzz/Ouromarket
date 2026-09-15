@@ -1,0 +1,66 @@
+name: Adaptive Alpha
+on:
+  pull_request:
+    paths: ['adaptive-alpha/**', '.github/workflows/adaptive-alpha.yml']
+  push:
+    paths: ['adaptive-alpha/**', '.github/workflows/adaptive-alpha.yml']
+permissions:
+  contents: read
+jobs:
+  runner-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: adaptive-alpha
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.15'
+      - run: uv sync --locked
+      - run: docker build -f runner/Dockerfile -t ouromarket-native-runner:ci .
+      - name: Accept fixed fixtures in Docker (not production gVisor acceptance)
+        run: |
+          ALPHA_RUNNER_IMAGE=$(docker image inspect ouromarket-native-runner:ci --format '{{.Id}}')
+          uv run python scripts/runner_smoke.py --socket /var/run/docker.sock --image-id "$ALPHA_RUNNER_IMAGE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-runner-fixture-acceptance
+          path: adaptive-alpha/.state/runner-acceptance.json
+          include-hidden-files: true
+  laboratory:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: adaptive-alpha
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.15'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: uv sync --locked
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run pyrefly check
+      - run: uv run mypy src
+      - run: make test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adaptive-alpha-coverage
+          path: |
+            adaptive-alpha/.state/coverage.xml
+            adaptive-alpha/.state/coverage-html/
+          include-hidden-files: true
+      - run: make spec
+      - run: uv run pip-audit --skip-editable
+      - run: make up
+      - run: uv run python scripts/smoke.py
+      - run: docker compose exec -T worker python - --offline-literature < scripts/mock_autonomous.py
+      - if: always()
+        run: docker compose down
