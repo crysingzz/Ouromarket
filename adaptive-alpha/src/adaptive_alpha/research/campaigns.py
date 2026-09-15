@@ -326,8 +326,11 @@ class Campaigns:
             if retained_packets:
                 with self.store.transaction() as conn:
                     packet = verify_evidence_packet(conn, self.store, retained_packets[0]["id"])
-                    if packet.query != campaign["query"] or packet.department != campaign.get(
-                        "department", "replication"
+                    if (
+                        packet.query != campaign["query"]
+                        or packet.department != campaign.get("department", "replication")
+                        or packet.full_text_policy
+                        != campaign.get("full_text_policy", "abstract-only")
                     ):
                         raise ValueError("CAMPAIGN_EVIDENCE_PACKET_MISMATCH")
                     evidence = [
@@ -344,7 +347,9 @@ class Campaigns:
                 else:
                     requested_sources = tuple(campaign.get("sources", ["openalex"]))
                     evidence, source_health = search_sources(
-                        campaign["query"], list(requested_sources)
+                        campaign["query"],
+                        list(requested_sources),
+                        campaign.get("full_text_policy", "abstract-only"),
                     )
                 if not evidence:
                     raise ValueError("NO_RESEARCH_EVIDENCE")
@@ -385,6 +390,7 @@ class Campaigns:
                     cast(tuple[Source, ...], requested_sources),
                     cast(dict[Source, Health], source_health),
                     evidence,
+                    full_text_policy=campaign.get("full_text_policy", "abstract-only"),
                 )
                 with self.store.transaction() as conn:
                     self.store.append(
@@ -398,6 +404,7 @@ class Campaigns:
                         "campaign_id": identity,
                         "query": campaign["query"],
                         "requested_sources": list(packet.requested_sources),
+                        "full_text_policy": packet.full_text_policy,
                         "source_health": packet.source_health,
                         "evidence_packet_id": packet.id,
                         "evidence_status": packet.status,

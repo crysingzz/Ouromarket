@@ -1,12 +1,19 @@
-"""Fixed-origin metadata connector; no arbitrary URL retrieval or redirects."""
+"""Fixed-origin literature connectors with bounded, inert full-text extraction."""
 
 import json
+import re
+from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 from adaptive_alpha.domain import digest, now
-from adaptive_alpha.research.contracts import Evidence
+from adaptive_alpha.research.contracts import Evidence, FullTextPolicy
+
+MAX_UPSTREAM_BYTES = 2_000_000
+MAX_FULL_TEXT_CHARS = 100_000
+MAX_ARXIV_FULL_TEXTS = 3
 
 
 def bounded_json(client: httpx.Client, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -15,7 +22,7 @@ def bounded_json(client: httpx.Client, method: str, url: str, **kwargs: Any) -> 
         data = bytearray()
         for chunk in response.iter_bytes():
             data.extend(chunk)
-            if len(data) > 2_000_000:
+            if len(data) > MAX_UPSTREAM_BYTES:
                 raise ValueError("UPSTREAM_RESPONSE_TOO_LARGE")
         result = json.loads(data)
         if not isinstance(result, dict):
@@ -71,6 +78,8 @@ class OpenAlex:
                 references=[str(x) for x in work.get("referenced_works", [])[:100]],
                 content_level="abstract",
                 full_text=None,
+                full_text_source_url=None,
+                license_url=None,
             )
             content_hash = digest(payload)
             evidence.append(
@@ -126,6 +135,8 @@ class SemanticScholar:
                 ],
                 "content_level": "abstract",
                 "full_text": None,
+                "full_text_source_url": None,
+                "license_url": None,
             }
             content_hash = digest(payload)
             result.append(
@@ -148,11 +159,87 @@ class SemanticScholar:
         return result
 
 
-class Arxiv:
-    capabilities = frozenset({"search", "metadata"})
+class _PlainTextExtractor(HTMLParser):
+    """Extract display text without retaining executable markup."""
 
-    def __init__(self, client: httpx.Client):
+    blocked_tags = frozenset({"script", "style", "noscript", "svg", "nav"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.blocked: list[str] = []
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        if tag in self.blocked_tags:
+            self.blocked.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.blocked_tags and tag in self.blocked:
+            reverse_index = self.blocked[::-1].index(tag)
+            self.blocked.pop(len(self.blocked) - reverse_index - 1)
+
+    def handle_data(self, data: str) -> None:
+        if not self.blocked and data.strip():
+            self.parts.append(data)
+
+    def text(self) -> str:
+        return " ".join(" ".join(self.parts).split())[:MAX_FULL_TEXT_CHARS]
+
+
+def arxiv_html_url(external_id: str) -> str:
+    """Map a validated arXiv abstract identity to its fixed HTML origin."""
+
+    parsed = urlsplit(external_id)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.netloc not in {"arxiv.org", "export.arxiv.org"}
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.startswith("/abs/")
+    ):
+        raise ValueError("ARXIV_IDENTITY_INVALID")
+    identifier = parsed.path.removeprefix("/abs/")
+    if (
+        not identifier
+        or len(identifier) > 100
+        or ".." in identifier
+        or not re.fullmatch(r"[A-Za-z0-9._/-]+", identifier)
+    ):
+        raise ValueError("ARXIV_IDENTITY_INVALID")
+    return "https://arxiv.org/html/" + identifier
+
+
+def bounded_html_text(client: httpx.Client, url: str) -> str:
+    """Retrieve bounded HTML and return inert, whitespace-normalized text."""
+
+    with client.stream("GET", url, headers={"Accept": "text/html"}) as response:
+        response.raise_for_status()
+        if (
+            response.headers.get("content-type", "").partition(";")[0].strip().lower()
+            != "text/html"
+        ):
+            raise ValueError("ARXIV_HTML_CONTENT_TYPE_REQUIRED")
+        data = bytearray()
+        for chunk in response.iter_bytes():
+            data.extend(chunk)
+            if len(data) > MAX_UPSTREAM_BYTES:
+                raise ValueError("UPSTREAM_RESPONSE_TOO_LARGE")
+    parser = _PlainTextExtractor()
+    parser.feed(bytes(data).decode("utf-8", errors="replace"))
+    parser.close()
+    text = parser.text()
+    if len(text) < 200:
+        raise ValueError("ARXIV_HTML_TEXT_INSUFFICIENT")
+    return text
+
+
+class Arxiv:
+    capabilities = frozenset({"search", "metadata", "available-html-full-text"})
+
+    def __init__(self, client: httpx.Client, *, include_full_text: bool = False):
         self.client = client
+        self.include_full_text = include_full_text
 
     def search(self, query: str) -> list[Evidence]:
         from defusedxml import ElementTree  # type: ignore[import-untyped]
@@ -166,19 +253,35 @@ class Arxiv:
             data = bytearray()
             for chunk in response.iter_bytes():
                 data.extend(chunk)
-                if len(data) > 2_000_000:
+                if len(data) > MAX_UPSTREAM_BYTES:
                     raise ValueError("UPSTREAM_RESPONSE_TOO_LARGE")
         root = ElementTree.fromstring(
             bytes(data), forbid_dtd=True, forbid_entities=True, forbid_external=True
         )
-        namespace = {"a": "http://www.w3.org/2005/Atom"}
+        namespace = {
+            "a": "http://www.w3.org/2005/Atom",
+            "arxiv": "http://arxiv.org/schemas/atom",
+        }
         result = []
 
         def field(entry: Any, name: str) -> str:
             return str(entry.findtext("a:" + name, default="", namespaces=namespace)).strip()
 
-        for entry in root.findall("a:entry", namespace)[:8]:
+        for index, entry in enumerate(root.findall("a:entry", namespace)[:8]):
             external = field(entry, "id")
+            try:
+                full_text_url = arxiv_html_url(external)
+            except ValueError:
+                continue
+            full_text = None
+            full_text_source_url = None
+            if self.include_full_text and index < MAX_ARXIV_FULL_TEXTS:
+                try:
+                    full_text_source_url = full_text_url
+                    full_text = bounded_html_text(self.client, full_text_source_url)
+                except (httpx.HTTPError, ValueError):
+                    full_text = None
+                    full_text_source_url = None
             payload: dict[str, Any] = {
                 "provider": "arxiv",
                 "external_id": external,
@@ -187,8 +290,13 @@ class Arxiv:
                 "url": external,
                 "published": field(entry, "published"),
                 "references": [],
-                "content_level": "abstract",
-                "full_text": None,
+                "content_level": "full_text" if full_text else "abstract",
+                "full_text": full_text,
+                "full_text_source_url": full_text_source_url,
+                "license_url": str(
+                    entry.findtext("arxiv:license", default="", namespaces=namespace) or ""
+                )[:1000]
+                or None,
             }
             content_hash = digest(payload)
             result.append(
@@ -211,13 +319,17 @@ class Arxiv:
         return result
 
 
-def search_sources(query: str, sources: list[str]) -> tuple[list[Evidence], dict[str, str]]:
+def search_sources(
+    query: str,
+    sources: list[str],
+    full_text_policy: FullTextPolicy = "abstract-only",
+) -> tuple[list[Evidence], dict[str, str]]:
     results: list[list[Evidence]] = []
     health = {}
     with httpx.Client(timeout=15, trust_env=False, follow_redirects=False) as client:
         connectors = {
             "openalex": OpenAlex(client),
-            "arxiv": Arxiv(client),
+            "arxiv": Arxiv(client, include_full_text=full_text_policy == "available-arxiv-html"),
             "semantic_scholar": SemanticScholar(client),
         }
         for name in dict.fromkeys(sources):

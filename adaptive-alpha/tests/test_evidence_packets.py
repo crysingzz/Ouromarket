@@ -38,6 +38,8 @@ def paper(*, full_text: str | None = None) -> Evidence:
         "references": ["paper-0"],
         "content_level": "full_text" if full_text else "abstract",
         "full_text": full_text,
+        "full_text_source_url": "https://example.test/paper-1.html" if full_text else None,
+        "license_url": "https://creativecommons.org/licenses/by/4.0/",
     }
     content_hash = digest(payload)
     return Evidence.model_validate(
@@ -124,6 +126,15 @@ def test_rejects_tampered_passage_and_duplicate_evidence() -> None:
     with pytest.raises(ValidationError, match="FULL_TEXT_CONTENT_REQUIRED"):
         Evidence.model_validate(
             {**item.model_dump(mode="json"), "content_level": "full_text", "full_text": None}
+        )
+    with pytest.raises(ValidationError, match="FULL_TEXT_PROVENANCE_REQUIRED"):
+        Evidence.model_validate(
+            {
+                **item.model_dump(mode="json"),
+                "content_level": "full_text",
+                "full_text": "retained text",
+                "full_text_source_url": None,
+            }
         )
     base = spec()
     invalid_specs = (
@@ -219,6 +230,15 @@ def test_packet_rejects_invalid_bindings_and_detects_retained_source_changes(
     with pytest.raises(ValidationError, match="FULL_TEXT_LEVEL_REQUIRED"):
         Evidence.model_validate(
             {**item.model_dump(mode="json"), "content_level": "abstract", "full_text": "text"}
+        )
+    with pytest.raises(ValidationError, match="FULL_TEXT_PROVENANCE_LEVEL_REQUIRED"):
+        Evidence.model_validate(
+            {
+                **item.model_dump(mode="json"),
+                "content_level": "abstract",
+                "full_text": None,
+                "full_text_source_url": "https://example.test/full-text",
+            }
         )
 
 

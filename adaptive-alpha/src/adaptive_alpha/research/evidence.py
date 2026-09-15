@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 from sqlalchemy.engine import Connection
 
 from adaptive_alpha.domain import Contract, digest, now
-from adaptive_alpha.research.contracts import Evidence
+from adaptive_alpha.research.contracts import Evidence, FullTextPolicy
 from adaptive_alpha.store import Store
 
 Short = Annotated[str, Field(min_length=1, max_length=100)]
@@ -61,6 +61,7 @@ class ResearchEvidencePacket(Contract):
     department: Department
     query: str = Field(min_length=3, max_length=300)
     requested_sources: tuple[Source, ...] = Field(min_length=1, max_length=4)
+    full_text_policy: FullTextPolicy = "abstract-only"
     source_health: dict[Source, Health]
     evidence: tuple[EvidenceBinding, ...] = Field(min_length=1, max_length=24)
     passages: tuple[EvidencePassage, ...] = Field(min_length=1, max_length=48)
@@ -81,6 +82,7 @@ class ResearchEvidencePacket(Contract):
             "department": self.department,
             "query": self.query,
             "requested_sources": self.requested_sources,
+            "full_text_policy": self.full_text_policy,
             "source_health": self.source_health,
             "evidence": [item.model_dump(mode="json") for item in self.evidence],
             "passages": [item.model_dump(mode="json") for item in self.passages],
@@ -147,6 +149,8 @@ def build_evidence_packet(
     requested_sources: tuple[Source, ...],
     source_health: dict[Source, Health],
     evidence: list[Evidence],
+    *,
+    full_text_policy: FullTextPolicy = "abstract-only",
 ) -> ResearchEvidencePacket:
     if set(source_health) != set(requested_sources):
         raise ValueError("EVIDENCE_SOURCE_HEALTH_MISMATCH")
@@ -172,13 +176,20 @@ def build_evidence_packet(
         if source_health[source] == "unavailable"
     )
     if department == "replication":
-        full_text = any(item.content_level == "full_text" for item in items)
+        full_text_count = sum(item.content_level == "full_text" for item in items)
+        full_text = full_text_count == len(items)
         status = (
             "REPLICATION_EVIDENCE_AVAILABLE" if full_text else "REPLICATION_EVIDENCE_INCOMPLETE"
         )
         gaps = (
             unavailable
-            + (() if full_text else ("FULL_TEXT_NOT_RETRIEVED",))
+            + (
+                ()
+                if full_text
+                else ("FULL_TEXT_INCOMPLETE",)
+                if full_text_count
+                else ("FULL_TEXT_NOT_RETRIEVED",)
+            )
             + ("FORMULAS_TABLES_AND_PARAMETERS_NOT_VERIFIED",)
         )
     else:
@@ -192,6 +203,7 @@ def build_evidence_packet(
         "department": department,
         "query": query,
         "requested_sources": requested_sources,
+        "full_text_policy": full_text_policy,
         "source_health": source_health,
         "evidence": [item.model_dump(mode="json") for item in bindings],
         "passages": [item.model_dump(mode="json") for item in passages],

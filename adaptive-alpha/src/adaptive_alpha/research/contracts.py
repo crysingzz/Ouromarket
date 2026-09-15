@@ -6,6 +6,8 @@ from pydantic import Field, model_validator
 
 from adaptive_alpha.domain import Contract, new_id
 
+FullTextPolicy = Literal["abstract-only", "available-arxiv-html"]
+
 
 class CampaignRequest(Contract):
     objective: str = Field(min_length=8, max_length=2000)
@@ -23,6 +25,7 @@ class CampaignRequest(Contract):
     sources: list[Literal["openalex", "arxiv", "semantic_scholar"]] = Field(
         default=["openalex"], min_length=1, max_length=3
     )
+    full_text_policy: FullTextPolicy = "abstract-only"
 
 
 class Candidate(Contract):
@@ -64,13 +67,19 @@ class Evidence(Contract):
     content_hash: str
     content_level: Literal["metadata", "abstract", "full_text"] = "abstract"
     full_text: str | None = Field(default=None, max_length=100_000)
+    full_text_source_url: str | None = Field(default=None, max_length=1000)
+    license_url: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def content_claim_matches(self) -> "Evidence":
         if self.content_level == "full_text" and not self.full_text:
             raise ValueError("FULL_TEXT_CONTENT_REQUIRED")
+        if self.content_level == "full_text" and not self.full_text_source_url:
+            raise ValueError("FULL_TEXT_PROVENANCE_REQUIRED")
         if self.content_level != "full_text" and self.full_text is not None:
             raise ValueError("FULL_TEXT_LEVEL_REQUIRED")
+        if self.content_level != "full_text" and self.full_text_source_url is not None:
+            raise ValueError("FULL_TEXT_PROVENANCE_LEVEL_REQUIRED")
         return self
 
 
