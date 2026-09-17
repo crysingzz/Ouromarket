@@ -7,6 +7,7 @@ from typing import Any
 from adaptive_alpha.domain import digest
 from adaptive_alpha.research.contracts import Candidate, DatasetImport, Evidence
 from adaptive_alpha.research.evidence import ResearchEvidencePacket
+from adaptive_alpha.research.knowledge import MechanismDescriptor, mechanism_identity
 from adaptive_alpha.research.portfolio import market_features
 
 
@@ -60,7 +61,12 @@ class MarketAgent:
 
 
 class NoveltyAgent:
-    def compare(self, candidate: Candidate, previous: list[dict[str, Any]]) -> dict[str, Any]:
+    def compare(
+        self,
+        candidate: Candidate,
+        previous: list[dict[str, Any]],
+        mechanism: MechanismDescriptor | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         tokens = set(re.findall(r"\w+", candidate.hypothesis.lower()))
         similarity = []
         for other in previous:
@@ -72,12 +78,36 @@ class NoveltyAgent:
             )
         except SyntaxError:
             structural_hash = None
+        mechanism_diagnostic: dict[str, Any] = {
+            "mechanism_fingerprint": None,
+            "mechanism_family_fingerprint": None,
+            "mechanism_family": None,
+            "mechanism_matches": [],
+            "mechanism_family_matches": [],
+            "external_mechanism_matches": [],
+            "campaign_mechanism_lineage": [],
+        }
+        if mechanism is not None:
+            mechanism_diagnostic.update(mechanism_identity(mechanism))
+            exact = mechanism_diagnostic["mechanism_fingerprint"]
+            family = mechanism_diagnostic["mechanism_family_fingerprint"]
+            mechanism_diagnostic["mechanism_matches"] = [
+                other["id"]
+                for other in previous
+                if other.get("novelty_diagnostic", {}).get("mechanism_fingerprint") == exact
+            ]
+            mechanism_diagnostic["mechanism_family_matches"] = [
+                other["id"]
+                for other in previous
+                if other.get("novelty_diagnostic", {}).get("mechanism_family_fingerprint") == family
+            ]
         return {
             "role": "novelty",
             "lexical_similarity": max(similarity, default=0.0),
             "program_ast_hash": structural_hash,
             "scientific_novelty": "unverified",
             "contradictions": candidate.contradictions,
+            **mechanism_diagnostic,
         }
 
 

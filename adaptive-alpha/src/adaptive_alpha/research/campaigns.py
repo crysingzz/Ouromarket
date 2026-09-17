@@ -23,6 +23,7 @@ from adaptive_alpha.research.evidence import (
     build_evidence_packet,
     verify_evidence_packet,
 )
+from adaptive_alpha.research.knowledge import mechanism_duplicate_reason
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.literature import search_sources
 from adaptive_alpha.research.program import Program
@@ -591,6 +592,11 @@ class Campaigns:
                                 "engineering_artifact_ids",
                                 "implementation_benchmark_id",
                                 "engineering_attempt_id",
+                                "mechanism_descriptor",
+                                "mechanism_fingerprint",
+                                "mechanism_family_fingerprint",
+                                "mechanism_family",
+                                "research_claim_ids",
                             )
                         )
                     ):
@@ -599,8 +605,92 @@ class Campaigns:
                 else:
                     with self.store.transaction() as conn:
                         prior = self.store.list_records(conn, "candidate", 1000)
-                        artifact["novelty_diagnostic"] = NoveltyAgent().compare(candidate, prior)
+                        artifact["novelty_diagnostic"] = NoveltyAgent().compare(
+                            candidate, prior, engineering.get("mechanism_descriptor")
+                        )
+                        mechanism_fingerprint = artifact["novelty_diagnostic"].get(
+                            "mechanism_fingerprint"
+                        )
+                        family_fingerprint = artifact["novelty_diagnostic"].get(
+                            "mechanism_family_fingerprint"
+                        )
+                        if isinstance(mechanism_fingerprint, str) and isinstance(
+                            family_fingerprint, str
+                        ):
+                            exact_records = self.store.related(
+                                conn,
+                                "candidate-mechanism",
+                                "mechanism_fingerprint",
+                                mechanism_fingerprint,
+                            )
+                            family_records = self.store.related(
+                                conn,
+                                "candidate-mechanism",
+                                "mechanism_family_fingerprint",
+                                family_fingerprint,
+                            )
+                            artifact["novelty_diagnostic"]["mechanism_matches"] = list(
+                                dict.fromkeys(
+                                    artifact["novelty_diagnostic"]["mechanism_matches"]
+                                    + [record["candidate_id"] for record in exact_records]
+                                )
+                            )
+                            artifact["novelty_diagnostic"]["mechanism_family_matches"] = list(
+                                dict.fromkeys(
+                                    artifact["novelty_diagnostic"]["mechanism_family_matches"]
+                                    + [record["candidate_id"] for record in family_records]
+                                )
+                            )
+                            prior_by_id = {item["id"]: item for item in prior}
+                            artifact["novelty_diagnostic"]["external_mechanism_matches"] = list(
+                                dict.fromkeys(
+                                    [
+                                        candidate_match
+                                        for candidate_match in artifact["novelty_diagnostic"][
+                                            "mechanism_matches"
+                                        ]
+                                        if prior_by_id.get(candidate_match, {}).get("campaign_id")
+                                        not in {None, identity}
+                                    ]
+                                    + [
+                                        record["candidate_id"]
+                                        for record in exact_records
+                                        if record["campaign_id"] != identity
+                                    ]
+                                )
+                            )
+                            artifact["novelty_diagnostic"]["campaign_mechanism_lineage"] = [
+                                candidate_match
+                                for candidate_match in artifact["novelty_diagnostic"][
+                                    "mechanism_matches"
+                                ]
+                                if candidate_match
+                                not in artifact["novelty_diagnostic"]["external_mechanism_matches"]
+                            ]
                         self.store.append(conn, "candidate", artifact, candidate_id)
+                        if isinstance(mechanism_fingerprint, str) and isinstance(
+                            family_fingerprint, str
+                        ):
+                            self.store.append(
+                                conn,
+                                "candidate-mechanism",
+                                {
+                                    "id": "candidate-mechanism-" + candidate_id,
+                                    "candidate_id": candidate_id,
+                                    "campaign_id": identity,
+                                    "department": campaign.get("department", "replication"),
+                                    "mechanism_fingerprint": mechanism_fingerprint,
+                                    "mechanism_family_fingerprint": family_fingerprint,
+                                    "mechanism_family": artifact["novelty_diagnostic"].get(
+                                        "mechanism_family"
+                                    ),
+                                    "mechanism_descriptor": engineering.get("mechanism_descriptor"),
+                                    "semantic_status": "researcher_asserted",
+                                    "verified": False,
+                                    "capital_eligible": False,
+                                },
+                                "candidate-mechanism-" + candidate_id,
+                            )
                         StrategyLifecycle(self.store).register_in_transaction(
                             conn, candidate_id, "worker"
                         )
@@ -629,6 +719,18 @@ class Campaigns:
                                     "verified": True,
                                 },
                             )
+                        for claim_id in artifact.get("research_claim_ids", []):
+                            self.store.append(
+                                conn,
+                                "knowledge-edge",
+                                {
+                                    "from": claim_id,
+                                    "to": candidate_id,
+                                    "relation": "motivates",
+                                    "asserted_by": "researcher",
+                                    "verified": False,
+                                },
+                            )
                 parent_id = candidate_id
                 sources[candidate_id] = candidate.source
                 try:
@@ -641,6 +743,12 @@ class Campaigns:
                     structural_hash = artifact["novelty_diagnostic"]["program_ast_hash"]
                     if structural_hash in seen_sources:
                         raise ValueError("DUPLICATE_PROGRAM")
+                    mechanism_reason = mechanism_duplicate_reason(
+                        campaign.get("department", "replication"),
+                        artifact["novelty_diagnostic"],
+                    )
+                    if mechanism_reason:
+                        raise ValueError(mechanism_reason)
                     seen_sources.add(structural_hash)
                     result = backtest(
                         candidate.source, dataset, min(30, deadline - time.monotonic())
@@ -655,7 +763,9 @@ class Campaigns:
                                 "id": candidate_id,
                                 "campaign_id": identity,
                                 "attempt_id": attempt_id,
-                                "status": "DUPLICATE" if code == "DUPLICATE_PROGRAM" else "INVALID",
+                                "status": "DUPLICATE"
+                                if code in {"DUPLICATE_PROGRAM", "DUPLICATE_MECHANISM"}
+                                else "INVALID",
                                 "reason": code,
                                 "at": now(),
                                 "capital_eligible": False,

@@ -15,6 +15,7 @@ from adaptive_alpha.research import workflow
 from adaptive_alpha.research.engineering import EngineeringRegistry, ImplementationBundle
 from adaptive_alpha.research.evidence import build_evidence_packet
 from adaptive_alpha.research.forward import ForwardPaper
+from adaptive_alpha.research.knowledge import mechanism_identity
 
 
 def move(client, identity, target):
@@ -221,6 +222,11 @@ def test_researcher_frozen_spec_drives_ouroboros_implementation(
     attempt = registry.list_attempts()[0]
     assert artifact["engineering_attempt_id"] == attempt["id"]
     assert attempt["status"] == "SUCCEEDED" and attempt["benchmark_id"]
+    identity = mechanism_identity(research.mechanism)
+    assert artifact["mechanism_fingerprint"] == identity["mechanism_fingerprint"]
+    with store.transaction() as conn:
+        claims = store.list_records(conn, "research-claim")
+    assert artifact["research_claim_ids"] == [claims[0]["id"]]
 
 
 @pytest.mark.parametrize("mode", ["normal", "stale", "crash"])

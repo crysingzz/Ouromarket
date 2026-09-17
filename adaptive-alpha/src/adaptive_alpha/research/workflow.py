@@ -16,9 +16,21 @@ from adaptive_alpha.research.engineering_worker import (
     _failure_code as engineering_failure_code,
 )
 from adaptive_alpha.research.engineering_worker import run_once as run_engineering_once
+from adaptive_alpha.research.knowledge import claim_record, mechanism_identity
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 from adaptive_alpha.research.provider import OpenAIProvider
 from adaptive_alpha.store import Store
+
+
+def _knowledge_metadata(work: Any) -> dict[str, Any]:
+    mechanism = mechanism_identity(work.spec.mechanism)
+    return {
+        **mechanism,
+        "research_claim_ids": [
+            claim_record(work.id, work.spec_hash, claim)["id"]
+            for claim in work.spec.evidence_claims
+        ],
+    }
 
 
 def _failure_code(error: Exception) -> str:
@@ -66,6 +78,7 @@ def resume_research(
             "evidence_packet_id": spec.evidence_packet_id,
             "citation_anchors": [item.model_dump(mode="json") for item in spec.citation_anchors],
             "evidence_gaps": list(spec.evidence_gaps),
+            **_knowledge_metadata(work),
         },
     )
 
@@ -184,5 +197,6 @@ def implement_research(
             "evidence_status": evidence_packet["status"],
             "citation_anchors": [item.model_dump(mode="json") for item in spec.citation_anchors],
             "evidence_gaps": list(spec.evidence_gaps),
+            **_knowledge_metadata(work),
         },
     )

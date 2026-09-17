@@ -13,6 +13,12 @@ from pydantic import Field, field_validator, model_validator
 from sqlalchemy.engine import Connection
 
 from adaptive_alpha.domain import Contract, canonical, digest, new_id, now
+from adaptive_alpha.research.knowledge import (
+    EvidenceClaim,
+    MechanismDescriptor,
+    claim_record,
+    mechanism_identity,
+)
 from adaptive_alpha.research.program import GRAMMAR, Program
 from adaptive_alpha.store import Store
 
@@ -33,6 +39,8 @@ CAPABILITIES: tuple[Capability, ...] = (
 RESEARCH_INSTRUCTIONS = """You are the researcher, responsible for economic hypotheses only.
 Return a precise ResearchSpec, not code, skills, subagents or tools. Specify decision rules,
 supporting source IDs, exact evidence passage IDs, contradictions and failure conditions.
+Describe the mechanism using the closed structured fields and express what each cited passage
+supports or contradicts as evidence_claims. These are researcher assertions, not verified truth.
 Use the provided department and evidence packet ID, and copy every declared evidence gap.
 Never claim full replication when the packet says its evidence is incomplete. Include at least two explicit
 signal input/output acceptance cases (past closes -> long-only fraction 0..1). Use exactly
@@ -57,6 +65,7 @@ class ResearchSpec(Contract):
     name: Short
     hypothesis: Text
     rationale: Text
+    mechanism: MechanismDescriptor
     evidence_ids: tuple[Short, ...] = Field(min_length=1, max_length=20)
     contradictions: tuple[Text, ...] = Field(max_length=10)
     failure_modes: tuple[Text, ...] = Field(min_length=1, max_length=10)
@@ -69,6 +78,7 @@ class ResearchSpec(Contract):
     evidence_packet_id: Short | None = None
     citation_anchors: tuple[CitationAnchor, ...] = Field(default=(), max_length=20)
     evidence_gaps: tuple[Text, ...] = Field(default=(), max_length=12)
+    evidence_claims: tuple[EvidenceClaim, ...] = Field(default=(), max_length=20)
 
     @model_validator(mode="after")
     def sources_match(self) -> "ResearchSpec":
@@ -88,6 +98,26 @@ class ResearchSpec(Contract):
             self.citation_anchors
         ):
             raise ValueError("CITATION_PASSAGE_DUPLICATE")
+        if self.evidence_packet_id is not None and not self.evidence_claims:
+            raise ValueError("EVIDENCE_CLAIMS_REQUIRED")
+        if self.evidence_packet_id is None and self.evidence_claims:
+            raise ValueError("EVIDENCE_PACKET_REQUIRED_FOR_CLAIMS")
+        anchors = {(item.evidence_id, item.passage_id) for item in self.citation_anchors}
+        if any(
+            claim.evidence_id not in self.evidence_ids
+            or (claim.evidence_id, claim.passage_id) not in anchors
+            for claim in self.evidence_claims
+        ):
+            raise ValueError("CLAIM_ANCHOR_UNBOUND")
+        if len({digest(item.model_dump(mode="json")) for item in self.evidence_claims}) != len(
+            self.evidence_claims
+        ):
+            raise ValueError("EVIDENCE_CLAIM_DUPLICATE")
+        has_contradiction = any(item.relation == "contradicts" for item in self.evidence_claims)
+        if self.contradictions and not has_contradiction:
+            raise ValueError("CONTRADICTION_CLAIM_REQUIRED")
+        if has_contradiction and not self.contradictions:
+            raise ValueError("CONTRADICTION_TEXT_REQUIRED")
         return self
 
 
@@ -278,6 +308,47 @@ class EngineeringRegistry:
                     raise ValueError("WORK_ORDER_ID_CONFLICT")
                 return work
             self.store.append(conn, "work-order", work.model_dump(mode="json"), work.id)
+            for claim in work.spec.evidence_claims:
+                retained_claim = claim_record(work.id, work.spec_hash, claim)
+                self.store.append(conn, "research-claim", retained_claim, retained_claim["id"])
+                self.store.append(
+                    conn,
+                    "knowledge-edge",
+                    {
+                        "from": claim.passage_id,
+                        "to": retained_claim["id"],
+                        "relation": claim.relation,
+                        "evidence_id": claim.evidence_id,
+                        "asserted_by": "researcher",
+                        "anchor_verified": True,
+                        "verified": False,
+                    },
+                )
+                self.store.append(
+                    conn,
+                    "knowledge-edge",
+                    {
+                        "from": retained_claim["id"],
+                        "to": work.id,
+                        "relation": "specified_by",
+                        "asserted_by": "researcher",
+                        "verified": False,
+                    },
+                )
+            mechanism_data = mechanism_identity(work.spec.mechanism)
+            self.store.append(
+                conn,
+                "research-mechanism",
+                {
+                    "id": "mechanism-" + digest({"work_order_id": work.id, **mechanism_data}),
+                    "work_order_id": work.id,
+                    "spec_hash": work.spec_hash,
+                    **mechanism_data,
+                    "semantic_status": "researcher_asserted",
+                    "verified": False,
+                    "capital_eligible": False,
+                },
+            )
             self.store.audit(conn, "engineering.work_registered", actor, {"id": work.id})
         return work
 

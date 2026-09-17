@@ -35,25 +35,43 @@ def registry(tmp_path):
 
 
 def spec(**updates):
-    return ResearchSpec.model_validate(
-        {
-            "name": "Momentum",
-            "hypothesis": "Persistent trends predict the next return",
-            "rationale": "Slow information diffusion can explain continuation",
-            "evidence_ids": ["paper"],
-            "source_hashes": ["b" * 64],
-            "contradictions": [],
-            "failure_modes": ["Mean reverting regime"],
-            "decision_rules": ["Hold one if last close exceeds first, otherwise hold zero"],
-            "dataset_id": "dataset",
-            "dataset_hash": "a" * 64,
-            "acceptance_cases": [
-                {"history": [100, 102], "expected": 1},
-                {"history": [102, 100], "expected": 0},
-            ],
-            **updates,
-        }
-    )
+    payload = {
+        "name": "Momentum",
+        "hypothesis": "Persistent trends predict the next return",
+        "rationale": "Slow information diffusion can explain continuation",
+        "mechanism": {
+            "family": "trend_continuation",
+            "premise": "Slow information diffusion causes recent trends to persist",
+            "inputs": ["price", "return"],
+            "formation_horizon_bars": 20,
+            "holding_horizon_bars": 1,
+            "direction": "long_only",
+        },
+        "evidence_ids": ["paper"],
+        "source_hashes": ["b" * 64],
+        "contradictions": [],
+        "failure_modes": ["Mean reverting regime"],
+        "decision_rules": ["Hold one if last close exceeds first, otherwise hold zero"],
+        "dataset_id": "dataset",
+        "dataset_hash": "a" * 64,
+        "acceptance_cases": [
+            {"history": [100, 102], "expected": 1},
+            {"history": [102, 100], "expected": 0},
+        ],
+        **updates,
+    }
+    if payload.get("evidence_packet_id") and "evidence_claims" not in updates:
+        anchor = payload.get("citation_anchors", [{}])[0]
+        if anchor.get("evidence_id") and anchor.get("passage_id"):
+            payload["evidence_claims"] = [
+                {
+                    "statement": "The cited passage supports trend continuation after costs",
+                    "relation": "supports",
+                    "evidence_id": anchor["evidence_id"],
+                    "passage_id": anchor["passage_id"],
+                }
+            ]
+    return ResearchSpec.model_validate(payload)
 
 
 def proposal(**updates):

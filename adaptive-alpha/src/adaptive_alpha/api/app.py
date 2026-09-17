@@ -436,6 +436,9 @@ def create_app(
             return {
                 "evidence": store.list_records(conn, "evidence"),
                 "packets": store.list_records(conn, "evidence-packet"),
+                "claims": store.list_records(conn, "research-claim"),
+                "mechanisms": store.list_records(conn, "research-mechanism"),
+                "candidate_mechanisms": store.list_records(conn, "candidate-mechanism"),
                 "edges": store.list_records(conn, "knowledge-edge"),
             }
 

@@ -385,7 +385,10 @@ def test_researcher_citations_are_bound_to_work_order(tmp_path: Path) -> None:
         update={
             "citation_anchors": (
                 bound.citation_anchors[0].model_copy(update={"passage_id": "c" * 64}),
-            )
+            ),
+            "evidence_claims": (
+                bound.evidence_claims[0].model_copy(update={"passage_id": "c" * 64}),
+            ),
         }
     )
     with pytest.raises(ValueError, match="SPEC_CITATION_ANCHOR_MISMATCH"):
