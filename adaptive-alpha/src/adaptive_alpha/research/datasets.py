@@ -19,15 +19,30 @@ def timestamp(text: str) -> datetime:
     return result
 
 
-def import_dataset(store: Store, request: DatasetImport, actor: str) -> dict[str, Any]:
+def _validate_dataset(request: DatasetImport) -> None:
     previous = None
     for bar in request.bars:
         event, available = timestamp(bar.time), timestamp(bar.available_at)
         if available < event or (previous is not None and event <= previous):
             raise ValueError("DATASET_ORDER_OR_AVAILABILITY")
         previous = event
+
+
+def _persist_dataset(
+    store: Store,
+    request: DatasetImport,
+    actor: str,
+    verification: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    _validate_dataset(request)
     payload = request.model_dump(mode="json")
-    identity = "dataset-" + digest(payload)
+    if verification is None and request.point_in_time_verified:
+        raise ValueError("SERVER_PIT_REPORT_REQUIRED")
+    if verification is not None and not request.point_in_time_verified:
+        raise ValueError("VERIFIED_DATASET_FLAG_REQUIRED")
+    identity = "dataset-" + digest(
+        payload if verification is None else {"data": payload, "verification": verification}
+    )
     manifest: dict[str, Any] = {
         "id": identity,
         "content_hash": digest(payload),
@@ -36,11 +51,13 @@ def import_dataset(store: Store, request: DatasetImport, actor: str) -> dict[str
         "bars": len(request.bars),
         "provenance": request.provenance,
         "adjustment": request.adjustment,
-        "point_in_time_verified": request.point_in_time_verified,
-        "verification": "operator_assertion" if request.point_in_time_verified else "unverified",
+        "point_in_time_verified": verification is not None,
+        "verification": "server_verified_as_of" if verification is not None else "unverified",
         "created_at": now(),
         "capital_eligible": False,
     }
+    if verification is not None:
+        manifest["proof"] = verification
     if store.artifact_dir is not None:
         buffer = BytesIO()
         pl.DataFrame([bar.model_dump() for bar in request.bars]).write_parquet(
@@ -59,3 +76,7 @@ def import_dataset(store: Store, request: DatasetImport, actor: str) -> dict[str
             )
             store.audit(conn, "dataset.imported", actor, manifest)
     return manifest
+
+
+def import_dataset(store: Store, request: DatasetImport, actor: str) -> dict[str, Any]:
+    return _persist_dataset(store, request, actor)

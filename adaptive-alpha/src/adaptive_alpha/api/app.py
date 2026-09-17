@@ -3,7 +3,7 @@
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import polars as pl
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -37,11 +37,16 @@ from adaptive_alpha.research.benchmark import (
     propose_revision,
 )
 from adaptive_alpha.research.campaigns import Campaigns
-from adaptive_alpha.research.contracts import Bar, CampaignRequest, DatasetImport
+from adaptive_alpha.research.contracts import Bar, CampaignRequest, DatasetImport, PITDatasetImport
 from adaptive_alpha.research.datasets import import_dataset
 from adaptive_alpha.research.departments import POLICIES, queue_counts
 from adaptive_alpha.research.forward import ForwardPaper
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
+from adaptive_alpha.research.pit import (
+    import_pit_dataset,
+    materialize_snapshot,
+    verification_report,
+)
 from adaptive_alpha.research.portfolio import allocate, market_features, pareto_population
 from adaptive_alpha.research.setup import ProviderSetup, configure_provider, load_provider
 from adaptive_alpha.risk.engine import policy_dict
@@ -103,7 +108,9 @@ def create_app(
     async def secure_headers(request: Request, call_next: Any) -> Any:
         if request.method in {"POST", "PUT", "PATCH"}:
             length = request.headers.get("content-length", "")
-            body_limit = 2_000_000 if request.url.path == "/api/datasets" else 65_536
+            body_limit = (
+                2_000_000 if request.url.path in {"/api/datasets", "/api/pit-datasets"} else 65_536
+            )
             if not length.isdigit() or int(length) > body_limit:
                 return JSONResponse(
                     {"detail": f"Body length required; limit {body_limit} bytes"}, status_code=413
@@ -407,6 +414,30 @@ def create_app(
     def datasets() -> list[dict[str, Any]]:
         with store.transaction() as conn:
             return [item["manifest"] for item in store.list_records(conn, "dataset")]
+
+    @app.post("/api/pit-datasets", status_code=201)
+    def upload_pit_dataset(
+        body: PITDatasetImport, actor: Annotated[str, Depends(operator)]
+    ) -> dict[str, Any]:
+        return import_pit_dataset(store, body, actor)
+
+    @app.get("/api/pit-datasets", dependencies=[Depends(identity)])
+    def pit_datasets() -> list[dict[str, Any]]:
+        with store.transaction() as conn:
+            return [item["manifest"] for item in store.list_records(conn, "pit-dataset")]
+
+    @app.get("/api/pit-datasets/{ledger_id}/report", dependencies=[Depends(identity)])
+    def pit_dataset_report(ledger_id: str) -> dict[str, Any]:
+        return verification_report(store, ledger_id)
+
+    @app.post("/api/pit-datasets/{ledger_id}/snapshots", status_code=201)
+    def create_pit_snapshot(
+        ledger_id: str,
+        actor: Annotated[str, Depends(operator)],
+        as_of: Annotated[str, Query(min_length=10, max_length=40)],
+        series: Literal["raw", "adjusted"] = "raw",
+    ) -> dict[str, Any]:
+        return materialize_snapshot(store, ledger_id, as_of, series, actor)
 
     @app.get("/api/campaigns", dependencies=[Depends(identity)])
     def list_campaigns() -> list[dict[str, Any]]:

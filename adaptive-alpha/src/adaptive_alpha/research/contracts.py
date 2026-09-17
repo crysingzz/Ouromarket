@@ -54,6 +54,41 @@ class DatasetImport(Contract):
     bars: list[Bar] = Field(min_length=300, max_length=5000)
 
 
+class AdjustmentPolicy(Contract):
+    name: str = Field(min_length=3, max_length=100)
+    version: str = Field(min_length=1, max_length=50, pattern=r"^[a-zA-Z0-9._-]+$")
+    adjusted_series: Literal["split", "total_return"]
+    description: str = Field(min_length=8, max_length=1000)
+
+
+class PITObservation(Contract):
+    event_time: str
+    published_at: str
+    received_at: str
+    source_sequence: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9._:-]+$")
+    revision: int = Field(ge=1, le=100)
+    corrects_source_sequence: str | None = Field(
+        default=None, max_length=100, pattern=r"^[a-zA-Z0-9._:-]+$"
+    )
+    raw_close: float = Field(gt=0, le=1e9)
+    adjusted_close: float = Field(gt=0, le=1e9)
+    volume: float = Field(ge=0, le=1e15)
+
+
+class PITDatasetImport(Contract):
+    name: str = Field(min_length=1, max_length=100)
+    symbol: str = Field(pattern=r"^[A-Z][A-Z0-9.]{0,9}$")
+    provider: str = Field(min_length=2, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$")
+    provider_dataset_id: str = Field(min_length=1, max_length=200)
+    license_url: str = Field(max_length=1000, pattern=r"^https://")
+    usage_rights: Literal["research"]
+    calendar: Literal["XNYS"]
+    timezone: Literal["America/New_York"]
+    frequency: Literal["1d"] = "1d"
+    adjustment_policy: AdjustmentPolicy
+    observations: list[PITObservation] = Field(min_length=300, max_length=6000)
+
+
 class Evidence(Contract):
     id: str = Field(default_factory=new_id)
     provider: str
