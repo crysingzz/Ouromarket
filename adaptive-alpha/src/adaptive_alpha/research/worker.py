@@ -5,6 +5,7 @@ import time
 
 from adaptive_alpha.config import Settings
 from adaptive_alpha.research.campaigns import Campaigns
+from adaptive_alpha.research.departments import policy_for
 from adaptive_alpha.research.ouroboros import OuroborosEngineer
 from adaptive_alpha.store import Store
 
@@ -50,6 +51,8 @@ def main() -> None:
         while not stopping:
             settings = Settings()
             campaigns.settings = settings
+            department = settings.research_department
+            policy = policy_for(department)
             monotonic = time.monotonic()
             if monotonic - last_runtime_probe >= 30:
                 runtime = engineering_runtime_status(settings)
@@ -57,9 +60,13 @@ def main() -> None:
             with store.transaction() as conn:
                 store.set_state(
                     conn,
-                    "research-worker",
+                    "research-worker:" + department,
                     {
                         "heartbeat": time.time(),
+                        "department": department,
+                        "department_policy_id": policy.id,
+                        "authority": "research-only",
+                        "capital_eligible": False,
                         "openai_key_configured": bool(
                             settings.openai_api_key and settings.openai_api_key.get_secret_value()
                         ),
@@ -69,7 +76,7 @@ def main() -> None:
                         "engineering_runtime": runtime,
                     },
                 )
-            claimed = campaigns.claim()
+            claimed = campaigns.claim(department)
             if claimed:
                 campaigns.run(*claimed)
             else:

@@ -49,6 +49,27 @@ services:
       ALPHA_PROVIDER_VAULT_DIR: /provider-vault
       ALPHA_OUROBOROS_URL: ${ALPHA_OUROBOROS_URL:-}
       ALPHA_OUROBOROS_WORKSPACE: ${ALPHA_OUROBOROS_WORKSPACE:-}
+      ALPHA_RESEARCH_DEPARTMENT: replication
+    volumes: [provider-vault:/provider-vault:ro]
+    secrets: [evaluator_token, openai_api_key]
+    networks: [public, database, evaluation]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      evaluator: {condition: service_healthy}
+  novel-worker:
+    <<: *hardened
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_EVALUATOR_URL: http://evaluator:8001
+      ALPHA_SECRETS_DIR: /run/secrets
+      ALPHA_PROVIDER_VAULT_DIR: /provider-vault
+      ALPHA_OUROBOROS_URL: ${ALPHA_OUROBOROS_URL:-}
+      ALPHA_OUROBOROS_WORKSPACE: ${ALPHA_OUROBOROS_WORKSPACE:-}
+      ALPHA_RESEARCH_DEPARTMENT: novel
     volumes: [provider-vault:/provider-vault:ro]
     secrets: [evaluator_token, openai_api_key]
     networks: [public, database, evaluation]

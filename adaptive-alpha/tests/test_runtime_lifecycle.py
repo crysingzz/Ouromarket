@@ -175,7 +175,9 @@ def test_worker_claims_once_records_heartbeat_and_handles_shutdown(settings, mon
     runpy.run_module("adaptive_alpha.research.worker", run_name="__main__")
     assert len(executed) == 1 and executed[0][0] == job["id"]
     with store.transaction() as conn:
-        assert store.state(conn, "research-worker")["heartbeat"] > 0
+        worker = store.state(conn, "research-worker:replication")
+        assert worker["heartbeat"] > 0 and worker["department"] == "replication"
+        assert worker["authority"] == "research-only" and not worker["capital_eligible"]
         assert store.state(conn, "campaign:" + job["id"])["status"] == "RUNNING"
 
 

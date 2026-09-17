@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     ouroboros_token: SecretStr | None = None
     ouroboros_provision_workspaces: bool = False
     engineering_inline: bool = False
+    research_department: Literal["replication", "novel"] = "replication"
     runner_socket: Path | None = None
     runner_image_id: str = ""
     hidden_dataset_path: Path | None = None

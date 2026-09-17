@@ -14,6 +14,13 @@ from adaptive_alpha.config import Settings
 from adaptive_alpha.domain import digest, new_id, now
 from adaptive_alpha.research.backtest import backtest
 from adaptive_alpha.research.contracts import CampaignRequest, Candidate, DatasetImport, Evidence
+from adaptive_alpha.research.departments import (
+    append_memory,
+    frozen_policy,
+    memory_context,
+    policy_for,
+    validate_department_packet,
+)
 from adaptive_alpha.research.engineering import EngineeringRegistry
 from adaptive_alpha.research.engineering_queue import EngineeringQueue
 from adaptive_alpha.research.evidence import (
@@ -43,9 +50,20 @@ class Campaigns:
     def create(
         self, request: CampaignRequest, actor: str, *, defer: bool = False
     ) -> dict[str, Any]:
+        campaign_id = new_id()
+        policy = policy_for(request.department)
+        budget = {
+            "campaign_id": campaign_id,
+            "department_policy_id": policy.id,
+            "scope": "campaign",
+            "token_limit": request.token_budget,
+        }
         payload: dict[str, Any] = {
-            "id": new_id(),
+            "id": campaign_id,
             **request.model_dump(mode="json"),
+            "department_policy_id": policy.id,
+            "department_policy": policy.model_dump(mode="json"),
+            "budget": {"id": digest(budget), **budget},
             "created_at": now(),
             "actor": actor,
             "generation_path": "research-spec-ouroboros-v1",
@@ -71,6 +89,7 @@ class Campaigns:
                     "attempts": 0,
                     "tokens_charged": 0,
                     "lease": None,
+                    "worker_department": None,
                 },
             )
             self.store.audit(conn, "campaign.queued", actor, {"id": payload["id"]})
@@ -168,7 +187,7 @@ class Campaigns:
             return None
         return str(open_attempts[0]["id"])
 
-    def claim(self) -> tuple[dict[str, Any], str] | None:
+    def claim(self, department: Department | None = None) -> tuple[dict[str, Any], str] | None:
         with self.store.transaction() as conn:
             entries = conn.execute(
                 select(states.c.id, states.c.payload)
@@ -178,6 +197,21 @@ class Campaigns:
             for identity, payload in entries:
                 state = json.loads(payload)
                 campaign_id = identity.removeprefix("campaign:")
+                try:
+                    request = self.store.get(conn, campaign_id, "campaign")
+                except KeyError:
+                    continue
+                try:
+                    policy = frozen_policy(request)
+                except ValueError:
+                    if department is not None:
+                        continue
+                    legacy_department = request.get("department", "replication")
+                    if legacy_department not in {"replication", "novel"}:
+                        legacy_department = "replication"
+                    policy = policy_for(cast(Department, legacy_department))
+                if department is not None and policy.department != department:
+                    continue
                 if state["status"] == "RUNNING" and state["lease_until"] < time.time():
                     recovery_attempt = self._recovery_attempt(conn, campaign_id)
                     state["status"] = "QUEUED" if recovery_attempt is not None else "INTERRUPTED"
@@ -256,16 +290,19 @@ class Campaigns:
                     self.store.set_state(conn, identity, state)
                 if state["status"] != "QUEUED":
                     continue
-                request = self.store.get(conn, campaign_id, "campaign")
                 lease = new_id()
                 state.update(
                     status="RUNNING",
                     lease=lease,
+                    worker_department=policy.department,
                     lease_until=time.time() + request["max_seconds"] + 30,
                 )
                 self.store.set_state(conn, identity, state)
                 self.store.audit(
-                    conn, "campaign.claimed", "worker", {"id": campaign_id, "lease": lease}
+                    conn,
+                    "campaign.claimed",
+                    "research-worker:" + policy.department,
+                    {"id": campaign_id, "lease": lease, "department": policy.department},
                 )
                 return request, lease
         return None
@@ -280,6 +317,7 @@ class Campaigns:
         hidden: Callable[[str, str, str], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         identity = campaign["id"]
+        policy = policy_for("replication")
         deadline = time.monotonic() + campaign["max_seconds"]
         state_id = "campaign:" + identity
 
@@ -289,6 +327,7 @@ class Campaigns:
                 if (
                     current["status"] != "RUNNING"
                     or current["lease"] != lease
+                    or current.get("worker_department") != policy.department
                     or current["lease_until"] < time.time()
                 ):
                     raise ValueError("CAMPAIGN_OWNERSHIP_LOST")
@@ -309,11 +348,12 @@ class Campaigns:
             "controlled-fixture" if generate is not None else "research-spec-ouroboros-v1"
         )
         try:
-            checkpoint()
             # Old immutable requests remain readable, but cannot select a retired
             # execution path. The worker never silently upgrades their semantics.
             if campaign.get("engineer") != "ouroboros":
                 raise ValueError("RETIRED_GENERATION_PATH")
+            policy = frozen_policy(campaign)
+            checkpoint()
             with self.store.transaction() as conn:
                 dataset_record = self.store.get(conn, campaign["dataset_id"], "dataset")
                 resume_attempt_id = self.store.state(conn, state_id).get("resume_attempt_id")
@@ -334,6 +374,7 @@ class Campaigns:
                         != campaign.get("full_text_policy", "abstract-only")
                     ):
                         raise ValueError("CAMPAIGN_EVIDENCE_PACKET_MISMATCH")
+                    validate_department_packet(policy, packet)
                     evidence = [
                         Evidence.model_validate(
                             self.store.get(conn, binding.evidence_id, "evidence")
@@ -393,6 +434,7 @@ class Campaigns:
                     evidence,
                     full_text_policy=campaign.get("full_text_policy", "abstract-only"),
                 )
+                validate_department_packet(policy, packet)
                 with self.store.transaction() as conn:
                     self.store.append(
                         conn, "evidence-packet", packet.model_dump(mode="json"), packet.id
@@ -473,11 +515,24 @@ class Campaigns:
                     resume_attempt_id
                     and attempts_by_id.get(resume_attempt_id, {}).get("generation") == generation
                 )
+                if resuming and generate is not None:
+                    raise ValueError("CONTROLLED_FIXTURE_RECOVERY_FORBIDDEN")
                 if resuming and resume_attempt_id:
                     attempt_id = resume_attempt_id
+                    retained_memory_ids = attempts_by_id[attempt_id].get("department_memory_ids")
+                    if not isinstance(retained_memory_ids, list):
+                        raise ValueError("DEPARTMENT_MEMORY_SNAPSHOT_REQUIRED")
+                    with self.store.transaction() as conn:
+                        department_memory = memory_context(
+                            conn,
+                            self.store,
+                            policy.department,
+                            identities=retained_memory_ids,
+                        )
                 else:
                     attempt_id = new_id()
                     with self.store.transaction() as conn:
+                        department_memory = memory_context(conn, self.store, policy.department)
                         state = self.store.state(conn, state_id)
                         state["attempts"] += 1
                         state["tokens_charged"] += allowance
@@ -490,6 +545,9 @@ class Campaigns:
                                 "campaign_id": identity,
                                 "generation": generation,
                                 "reserved_tokens": allowance,
+                                "department": policy.department,
+                                "department_policy_id": policy.id,
+                                "department_memory_ids": [item["id"] for item in department_memory],
                                 "started_at": now(),
                                 "generation_path": generation_path,
                             },
@@ -501,6 +559,12 @@ class Campaigns:
                     "attempt_id": attempt_id,
                     "objective": campaign["objective"],
                     "department": campaign.get("department", "replication"),
+                    "department_policy": {
+                        "id": policy.id,
+                        "result_criterion": policy.result_criterion,
+                        "budget_scope": policy.budget_scope,
+                    },
+                    "department_memory": department_memory,
                     "market": market,
                     "evidence": literature["documents"][:8],
                     "evidence_packet": {
@@ -540,8 +604,6 @@ class Campaigns:
                             checkpoint,
                         )
                 else:
-                    if resuming:
-                        raise ValueError("CONTROLLED_FIXTURE_RECOVERY_FORBIDDEN")
                     # Trusted in-process fixtures only; this callable is never
                     # accepted from an API request or used by the worker entrypoint.
                     candidate, usage = generate(campaign["model"], context, allowance)
@@ -567,6 +629,8 @@ class Campaigns:
                     "scope": "internal-paper",
                     "capital_eligible": False,
                     "research_department": campaign.get("department", "replication"),
+                    "department_policy_id": policy.id,
+                    "department_result_criterion": policy.result_criterion,
                     "evidence_packet_id": packet.id,
                     "evidence_status": packet.status,
                     "evidence_gaps": list(packet.gaps),
@@ -584,6 +648,9 @@ class Campaigns:
                         or retained_artifact.get("dataset_id") != campaign["dataset_id"]
                         or retained_artifact.get("work_order_id")
                         != engineering.get("work_order_id")
+                        or retained_artifact.get("department_policy_id") != policy.id
+                        or retained_artifact.get("department_result_criterion")
+                        != policy.result_criterion
                         or any(
                             retained_artifact.get(key) != engineering.get(key)
                             for key in (
@@ -755,22 +822,20 @@ class Campaigns:
                     )
                 except ValueError as invalid:
                     code = str(invalid) if str(invalid).isupper() else "INVALID_PROGRAM"
+                    invalid_result = {
+                        "id": candidate_id,
+                        "campaign_id": identity,
+                        "attempt_id": attempt_id,
+                        "status": "DUPLICATE"
+                        if code in {"DUPLICATE_PROGRAM", "DUPLICATE_MECHANISM"}
+                        else "INVALID",
+                        "reason": code,
+                        "at": now(),
+                        "capital_eligible": False,
+                    }
                     with self.store.transaction() as conn:
-                        self.store.append(
-                            conn,
-                            "candidate-result",
-                            {
-                                "id": candidate_id,
-                                "campaign_id": identity,
-                                "attempt_id": attempt_id,
-                                "status": "DUPLICATE"
-                                if code in {"DUPLICATE_PROGRAM", "DUPLICATE_MECHANISM"}
-                                else "INVALID",
-                                "reason": code,
-                                "at": now(),
-                                "capital_eligible": False,
-                            },
-                        )
+                        self.store.append(conn, "candidate-result", invalid_result)
+                        append_memory(conn, self.store, campaign, artifact, invalid_result)
                     previous = {
                         "source": candidate.source,
                         "validation_error": code,
@@ -795,6 +860,7 @@ class Campaigns:
                 }
                 with self.store.transaction() as conn:
                     self.store.append(conn, "candidate-result", item)
+                    append_memory(conn, self.store, campaign, artifact, item)
                     self.store.audit(
                         conn,
                         "campaign.evaluated",

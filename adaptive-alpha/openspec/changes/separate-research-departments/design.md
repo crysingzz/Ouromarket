@@ -1,0 +1,9 @@
+# Design
+
+The server owns two immutable `DepartmentPolicy` values. Each policy names its queue, memory namespace, budget scope, accepted evidence statuses and result criterion. The campaign record freezes the policy identifier and token budget; mutable state accounts reservations only inside that campaign. A worker starts with a required `ALPHA_RESEARCH_DEPARTMENT` value and passes it to `Campaigns.claim`. Claiming re-reads the immutable campaign and ignores queued work for the other department. The lease records the worker department, preventing a caller from changing department after admission.
+
+Every terminal candidate result produces a bounded `research-memory` record. The record contains outcome identifiers, evidence status, mechanism identity and public gate summary, but no hidden evaluation details, code or model instructions. A later campaign receives a deterministic, bounded snapshot selected only from its own department. Snapshot identities are retained on attempts so recovery can prove the same memory input was used. Memory is untrusted research context and gains no evaluation or capital authority.
+
+Department policy validation runs before laboratory evaluation. Replication accepts only replication evidence packet states and retains every declared gap. Novel research accepts only a scoped novelty packet and applies the existing external mechanism duplicate rule. The resulting candidate records name the frozen policy and criterion. Older immutable campaigns without a frozen policy remain readable but cannot be claimed by the new fixed-department workers.
+
+Docker runs one replication worker and one novel worker. Each writes a separate heartbeat. Readiness reports both states and per-department queued/running counts; no aggregate healthy label hides one missing department.

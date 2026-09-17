@@ -39,6 +39,7 @@ from adaptive_alpha.research.benchmark import (
 from adaptive_alpha.research.campaigns import Campaigns
 from adaptive_alpha.research.contracts import Bar, CampaignRequest, DatasetImport
 from adaptive_alpha.research.datasets import import_dataset
+from adaptive_alpha.research.departments import POLICIES, queue_counts
 from adaptive_alpha.research.forward import ForwardPaper
 from adaptive_alpha.research.lifecycle import StrategyLifecycle
 from adaptive_alpha.research.portfolio import allocate, market_features, pareto_population
@@ -352,14 +353,23 @@ def create_app(
     @app.get("/api/research/readiness", dependencies=[Depends(operator)])
     def readiness() -> dict[str, Any]:
         with store.transaction() as conn:
-            worker = store.state(conn, "research-worker")
+            workers = {
+                department: store.state(conn, "research-worker:" + department)
+                for department in POLICIES
+            }
+            queues = queue_counts(conn, store)
             engineering_worker = store.state(conn, "engineering-worker")
         return {
             "provider": "openai",
             "default_model": load_provider(config.provider_vault_dir).get(
                 "model", config.openai_model
             ),
-            "worker": worker,
+            "workers": workers,
+            "queues": queues,
+            "department_policies": {
+                department: policy.model_dump(mode="json")
+                for department, policy in POLICIES.items()
+            },
             "engineering_worker": engineering_worker,
             "literature": ["openalex", "arxiv", "semantic_scholar"],
             "program_grammar": "signal-python-v1",
