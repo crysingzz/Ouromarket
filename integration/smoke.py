@@ -45,6 +45,13 @@ with httpx.Client(base_url=url, timeout=30, trust_env=False) as client:
         name="Protocol acceptance fixture",
         hypothesis="A fixed historical trend implies continuation",
         rationale="Controlled fixture for API compatibility only",
+        mechanism={
+            "family": "trend_continuation",
+            "premise": "Delayed price adjustment permits short-horizon continuation",
+            "inputs": ["price", "return"],
+            "formation_horizon_bars": 2,
+            "holding_horizon_bars": 1,
+        },
         evidence_ids=("fixture-paper",),
         source_hashes=("a" * 64,),
         contradictions=(),
