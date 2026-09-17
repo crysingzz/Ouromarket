@@ -31,6 +31,11 @@ def main() -> None:
         action="store_true",
         help="Use explicitly labelled evidence fixtures for repeatable CI",
     )
+    parser.add_argument(
+        "--controlled-evaluation",
+        action="store_true",
+        help="Use a controlled PASS evaluator when a repeatable local gate cannot spend E1 budget",
+    )
     args = parser.parse_args()
     config = Settings()
     store = Store(config.database_url, manage_schema=config.manage_schema)
@@ -73,7 +78,12 @@ def main() -> None:
     lease = new_id()
     with store.transaction() as conn:
         state = store.state(conn, "campaign:" + campaign["id"])
-        state.update(status="RUNNING", lease=lease, lease_until=time.time() + 630)
+        state.update(
+            status="RUNNING",
+            lease=lease,
+            worker_department=campaign["department"],
+            lease_until=time.time() + 630,
+        )
         store.set_state(conn, "campaign:" + campaign["id"], state)
 
     def generate(
@@ -111,7 +121,8 @@ def main() -> None:
             ]
 
         search = offline_search
-    result = pipeline.run(campaign, lease, generate=generate, search=search)
+    hidden = (lambda *_: {"verdict": "PASS", "score": 1.0}) if args.controlled_evaluation else None
+    result = pipeline.run(campaign, lease, generate=generate, search=search, hidden=hidden)
     with store.transaction() as conn:
         bundle = {
             kind: [
@@ -139,7 +150,9 @@ def main() -> None:
                 "audit_verified": audit,
                 "provider": "controlled-fixture; no OpenAI request",
                 "literature": "controlled fixture" if args.offline_literature else "real OpenAlex",
-                "evaluation": "real isolated evaluator",
+                "evaluation": "controlled fixture"
+                if args.controlled_evaluation
+                else "real isolated evaluator",
             },
             indent=2,
         )
