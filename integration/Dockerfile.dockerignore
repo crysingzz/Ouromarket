@@ -1,0 +1,14 @@
+*
+!ouroboros-runtime/
+!ouroboros-runtime/**
+!integration/
+!integration/runtime_gateway.py
+!integration/launch.py
+!integration/upstream.json
+**/.git
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.secrets
+**/.state

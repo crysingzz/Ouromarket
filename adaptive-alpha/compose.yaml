@@ -1,0 +1,188 @@
+name: adaptive-alpha
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 768m
+  cpus: 1.0
+  restart: unless-stopped
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+services:
+  api:
+    <<: *hardened
+    build: &alpha-build
+      context: .
+      args:
+        BUILD_COMMIT: ${ALPHA_BUILD_COMMIT:-development}
+        BUILD_LOCK_HASH: ${ALPHA_BUILD_LOCK_HASH:-development}
+    ports: ["127.0.0.1:8787:8000"]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_EVALUATOR_URL: http://evaluator:8001
+      ALPHA_OPENAI_MODEL: ${ALPHA_OPENAI_MODEL:-}
+      ALPHA_PROVIDER_VAULT_DIR: /provider-vault
+      ALPHA_ARTIFACT_DIR: /artifacts
+      ALPHA_SECRETS_DIR: /run/secrets
+    volumes: [provider-vault:/provider-vault, artifacts:/artifacts]
+    secrets: [operator_token, research_token, evaluator_token]
+    networks: [public, database, evaluation]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      evaluator: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  worker:
+    <<: *hardened
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_EVALUATOR_URL: http://evaluator:8001
+      ALPHA_SECRETS_DIR: /run/secrets
+      ALPHA_PROVIDER_VAULT_DIR: /provider-vault
+      ALPHA_OUROBOROS_URL: ${ALPHA_OUROBOROS_URL:-}
+      ALPHA_OUROBOROS_WORKSPACE: ${ALPHA_OUROBOROS_WORKSPACE:-}
+      ALPHA_RESEARCH_DEPARTMENT: replication
+    volumes: [provider-vault:/provider-vault:ro]
+    secrets: [evaluator_token, openai_api_key]
+    networks: [public, database, evaluation]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      evaluator: {condition: service_healthy}
+  novel-worker:
+    <<: *hardened
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_EVALUATOR_URL: http://evaluator:8001
+      ALPHA_SECRETS_DIR: /run/secrets
+      ALPHA_PROVIDER_VAULT_DIR: /provider-vault
+      ALPHA_OUROBOROS_URL: ${ALPHA_OUROBOROS_URL:-}
+      ALPHA_OUROBOROS_WORKSPACE: ${ALPHA_OUROBOROS_WORKSPACE:-}
+      ALPHA_RESEARCH_DEPARTMENT: novel
+    volumes: [provider-vault:/provider-vault:ro]
+    secrets: [evaluator_token, openai_api_key]
+    networks: [public, database, evaluation]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      evaluator: {condition: service_healthy}
+  engineering-worker:
+    <<: *hardened
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.engineering_worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_SECRETS_DIR: /run/secrets
+      ALPHA_OUROBOROS_URL: ${ALPHA_OUROBOROS_URL:-}
+      ALPHA_OUROBOROS_WORKSPACE: ${ALPHA_OUROBOROS_WORKSPACE:-}
+    networks: [database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+  tool-worker:
+    <<: *hardened
+    profiles: [native-tools]
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.tool_worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_RUNNER_SOCKET: /var/run/docker.sock
+      ALPHA_RUNNER_IMAGE_ID: ${ALPHA_RUNNER_IMAGE_ID:-}
+    volumes:
+      - ${ALPHA_RUNNER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    group_add: ["${ALPHA_RUNNER_DOCKER_GID:-0}"]
+    networks: [database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+  evaluator:
+    <<: *hardened
+    build: *alpha-build
+    command: [uvicorn, adaptive_alpha.evaluation.service:create_evaluator, --factory, --host, 0.0.0.0, --port, "8001", --no-access-log]
+    environment:
+      ALPHA_EVALUATOR_DATABASE_URL: sqlite:////state/hidden.db
+      ALPHA_SECRETS_DIR: /run/secrets
+    secrets: [evaluator_token, hidden_seed]
+    volumes: [hidden-ledger:/state]
+    networks: [evaluation]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  forward-worker:
+    <<: *hardened
+    profiles: [forward]
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.research.forward_worker]
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_RUNTIME_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_MANAGE_SCHEMA: "false"
+      ALPHA_SECRETS_DIR: /run/secrets
+    secrets: [alpaca_data_key, alpaca_data_secret]
+    networks: [public, database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+  migrate:
+    <<: *hardened
+    build: *alpha-build
+    command: [python, -m, adaptive_alpha.migrate]
+    restart: "no"
+    environment:
+      ALPHA_DATABASE_URL: ${ALPHA_DATABASE_URL:?Run scripts/bootstrap.py first}
+      ALPHA_SECRETS_DIR: /run/secrets
+    secrets: [runtime_password]
+    networks: [database]
+    depends_on:
+      postgres: {condition: service_healthy}
+  postgres:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_USER: alpha
+      POSTGRES_DB: alpha
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [database]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U alpha -d alpha]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+networks:
+  public: {}
+  database: {internal: true}
+  evaluation: {internal: true}
+volumes:
+  postgres-data: {}
+  hidden-ledger: {}
+  provider-vault: {}
+  artifacts: {}
+secrets:
+  operator_token: {file: .secrets/operator_token}
+  research_token: {file: .secrets/research_token}
+  evaluator_token: {file: .secrets/evaluator_token}
+  hidden_seed: {file: .secrets/hidden_seed}
+  postgres_password: {file: .secrets/postgres_password}
+  openai_api_key: {file: .secrets/openai_api_key}
+  runtime_password: {file: .secrets/runtime_password}
+  alpaca_data_key: {file: .secrets/alpaca_data_key}
+  alpaca_data_secret: {file: .secrets/alpaca_data_secret}

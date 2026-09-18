@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adaptive-alpha"
+version = "0.3.0"
+description = "Isolated quantitative research laboratory and paper execution control plane"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic-settings>=2.8,<3",
+  "sqlalchemy>=2.0.38,<3",
+  "psycopg[binary]>=3.2,<4",
+  "httpx>=0.28,<1",
+  "numpy>=2.2,<3",
+  "polars>=1.24,<2",
+  "defusedxml>=0.7.1,<1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<10",
+    "pytest-cov>=6,<8",
+    "hypothesis>=6.127,<7",
+    "ruff>=0.11,<1",
+    "mypy>=1.15,<2",
+    "pip-audit>=2.9,<3",
+    "pyrefly>=1.2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/adaptive_alpha"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pyrefly]
+project-includes = ["src"]
+search-path = ["src"]
+python-version = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = ["integration: PostgreSQL or Docker integration", "serial: process or server integration"]
+
+[tool.uv]
+required-version = ">=0.11.15"
+
+[tool.coverage.report]
+fail_under = 100
+precision = 2
+show_missing = true

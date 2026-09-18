@@ -1,0 +1,7 @@
+# Design
+
+The campaign owns a closed `full_text_policy` enum. The default is `abstract-only`, preserving previous behavior. Under `available-arxiv-html`, only the arXiv connector may retrieve full text and only for the first three returned entries, which bounds latency and upstream work.
+
+The connector accepts an Atom identity only when its scheme is HTTP(S), its exact authority is `arxiv.org` or `export.arxiv.org`, its path begins with `/abs/`, and the remaining identifier contains only an allowlisted character set. It then constructs `https://arxiv.org/html/<id>` itself. The HTTP client disables environment trust and redirects. A response must be `text/html`, remain under two million decoded bytes, and yield at least 200 characters of visible text. The parser ignores script, style, noscript, SVG and navigation content, collapses whitespace and retains at most 100,000 characters.
+
+An invalid arXiv identity is discarded. Any per-document HTML HTTP or content-validation failure produces the existing abstract evidence instead of a false full-text claim. Full-text evidence binds the derived URL, reported license, extracted text and content hash. The evidence packet includes the requested policy in its content-addressed identity. A replication packet is available only if all retained documents contain full text, is incomplete with `FULL_TEXT_INCOMPLETE` when coverage is partial, and retains the formula/table/parameter gap in every case.

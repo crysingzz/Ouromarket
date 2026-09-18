@@ -1,0 +1,3 @@
+[submodule "ouroboros-runtime"]
+	path = ouroboros-runtime
+	url = https://github.com/razzant/ouroboros.git

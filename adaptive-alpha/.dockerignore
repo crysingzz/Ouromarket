@@ -1,0 +1,10 @@
+*
+!src/
+!src/**
+!pyproject.toml
+!uv.lock
+!README.md
+
+**/__pycache__/
+**/*.pyc
+**/.DS_Store
